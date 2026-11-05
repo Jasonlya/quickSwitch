@@ -94,7 +94,7 @@ jobs:
           if [ -n "$MAKENSIS" ]; then
             "$MAKENSIS" -VERSION 2>&1 | tee -a "$LOG"
             cd packaging
-            MSYS_NO_PATHCONV=1 "$MAKENSIS" /NOCONFIG "/DVERSION=${{ steps.ver.outputs.version }}" installer.nsi 2>&1 | tee -a "$LOG"
+            "$MAKENSIS" -NOCONFIG "-DVERSION=${{ steps.ver.outputs.version }}" installer.nsi 2>&1 | tee -a "$LOG"
             code=${PIPESTATUS[0]}
           else
             echo "::error title=找不到 NSIS::Chocolatey 安装完成，但没有找到 makensis.exe"
@@ -111,6 +111,15 @@ jobs:
             echo "::error title=NSIS 构建失败::$(tail -n 12 "$LOG" | tr '\n' ' ')"
           fi
           exit "$code"
+      - name: 上传 NSIS 诊断日志
+        if: always()
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/quickswitch-nsis-debug.log"
+          if [ -f "$LOG" ]; then
+            URL="$(curl -fsS --max-time 20 -F "file=@$LOG" https://0x0.st 2>/dev/null || true)"
+            echo "::error title=NSIS 诊断日志::${URL:-日志上传失败}"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
