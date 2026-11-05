@@ -79,8 +79,13 @@ jobs:
         shell: bash
         run: |
           choco install nsis --no-progress -y
+          MAKENSIS="$(find '/c/Program Files' '/c/Program Files (x86)' -maxdepth 4 -iname makensis.exe -print -quit 2>/dev/null)"
+          if [ -z "$MAKENSIS" ]; then
+            echo "::error title=找不到 NSIS::Chocolatey 安装完成，但没有找到 makensis.exe"
+            exit 1
+          fi
           set +e
-          makensis "/DVERSION=${{ steps.ver.outputs.version }}" packaging/installer.nsi 2>&1 | tee /tmp/quickswitch-nsis.log
+          "$MAKENSIS" "/DVERSION=${{ steps.ver.outputs.version }}" packaging/installer.nsi 2>&1 | tee /tmp/quickswitch-nsis.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             echo "::error title=NSIS 构建失败::$(tail -n 8 /tmp/quickswitch-nsis.log | tr '\n' ' ')"
