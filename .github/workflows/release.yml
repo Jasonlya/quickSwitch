@@ -111,7 +111,7 @@ jobs:
             echo "::error title=NSIS 构建失败::$(tail -n 12 "$LOG" | tr '\n' ' ')"
           fi
           exit "$code"
-      - name: 上传 NSIS 诊断日志
+      - name: NSIS 失败诊断
         if: always()
         shell: bash
         run: |

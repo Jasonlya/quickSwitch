@@ -15,8 +15,17 @@
 !define APPEXE    "QuickSwitch.exe"
 !define PROJECTDIR ".."
 
+; Windows 版 NSIS 的 File 命令只按反斜杠拆分路径；Unix 版 makensis 使用正斜杠。
+!ifdef NSIS_WIN32_MAKENSIS
+  !define DISTDIR "${PROJECTDIR}\dist"
+  !define DISTSEP "\"
+!else
+  !define DISTDIR "${PROJECTDIR}/dist"
+  !define DISTSEP "/"
+!endif
+
 Name "${APPNAME} ${VERSION}"
-OutFile "${PROJECTDIR}/dist/QuickSwitch-Setup-${VERSION}.exe"
+OutFile "${DISTDIR}${DISTSEP}QuickSwitch-Setup-${VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${APPNAME}"
 InstallDirRegKey HKLM "Software\${APPNAME}" "InstallDir"
 RequestExecutionLevel admin
@@ -49,7 +58,7 @@ Section "QuickSwitch 主程序" SecMain
     SetRegView 64
     SetShellVarContext all
     SetOutPath "$INSTDIR"
-    File "${PROJECTDIR}/dist/${APPEXE}"
+    File "${DISTDIR}${DISTSEP}${APPEXE}"
     File "icon.ico"
 
     CreateDirectory "$SMPROGRAMS\QuickSwitch"

@@ -64,8 +64,18 @@ QuickSwitch 安装说明
 TXT
 
 info "生成 DMG：$(basename "$OUT")"
-hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" -fs HFS+ -format UDZO \
-    -imagekey zlib-level=9 -ov "$OUT" >/dev/null
+created=0
+for attempt in 1 2 3; do
+    if hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" -fs HFS+ -format UDZO \
+        -imagekey zlib-level=9 -ov "$OUT" >/dev/null; then
+        created=1
+        break
+    fi
+    info "DMG 创建失败，清理挂载点后重试（${attempt}/3）"
+    hdiutil detach "/Volumes/${VOLNAME}" -force >/dev/null 2>&1 || true
+    sleep 3
+done
+[ "$created" -eq 1 ] || die "hdiutil 创建 DMG 失败：${OUT}"
 
 info "校验挂载"
 hdiutil attach "$OUT" -nobrowse -readonly -mountpoint "$MNT" >/dev/null
