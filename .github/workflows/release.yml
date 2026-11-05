@@ -117,6 +117,8 @@ jobs:
         run: |
           LOG="$RUNNER_TEMP/quickswitch-nsis-debug.log"
           if [ -f "$LOG" ]; then
+            echo "dist 目录内容：" >> "$LOG"
+            find dist -maxdepth 3 -type f 2>/dev/null | head -80 >> "$LOG"
             DIAG="$(tail -n 60 "$LOG" | tr '\r\n' '  ' | cut -c1-6000)"
             echo "::error title=NSIS 诊断日志::${DIAG:-日志为空}"
           fi
