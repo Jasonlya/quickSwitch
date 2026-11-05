@@ -37,7 +37,14 @@ jobs:
       - name: PyInstaller 打包
         run: pyinstaller --clean --noconfirm packaging/quickswitch.spec
       - name: 生成 DMG
-        run: packaging/build-dmg.sh --out "dist/QuickSwitch-${{ steps.ver.outputs.version }}-macOS-${{ matrix.arch }}.dmg"
+        run: |
+          set +e
+          packaging/build-dmg.sh --out "dist/QuickSwitch-${{ steps.ver.outputs.version }}-macOS-${{ matrix.arch }}.dmg" 2>&1 | tee /tmp/quickswitch-dmg.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=DMG 构建失败::$(tail -n 8 /tmp/quickswitch-dmg.log | tr '\n' ' ')"
+          fi
+          exit "$code"
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg-${{ matrix.arch }}
@@ -72,7 +79,13 @@ jobs:
         shell: bash
         run: |
           choco install nsis --no-progress -y
-          "/c/Program Files (x86)/NSIS/makensis.exe" "/DVERSION=${{ steps.ver.outputs.version }}" packaging/installer.nsi
+          set +e
+          makensis "/DVERSION=${{ steps.ver.outputs.version }}" packaging/installer.nsi 2>&1 | tee /tmp/quickswitch-nsis.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=NSIS 构建失败::$(tail -n 8 /tmp/quickswitch-nsis.log | tr '\n' ' ')"
+          fi
+          exit "$code"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
