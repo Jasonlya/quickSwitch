@@ -76,22 +76,32 @@ jobs:
         shell: bash
         run: pyinstaller --clean --noconfirm packaging/quickswitch.spec
       - name: 生成安装包（NSIS）
-        shell: bash
+        shell: pwsh
         run: |
           choco install nsis --no-progress -y
-          MAKENSIS="$(find '/c/Program Files' '/c/Program Files (x86)' -maxdepth 4 -iname makensis.exe -print -quit 2>/dev/null)"
-          if [ -z "$MAKENSIS" ]; then
-            echo "::error title=找不到 NSIS::Chocolatey 安装完成，但没有找到 makensis.exe"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error title=安装 NSIS 失败::Chocolatey 返回退出码 $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          $makensis = @(
+            'C:\Program Files (x86)\NSIS\makensis.exe',
+            'C:\Program Files\NSIS\makensis.exe'
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) {
+            Write-Output "::error title=找不到 NSIS::Chocolatey 安装完成，但没有找到 makensis.exe"
             exit 1
           fi
-          cd packaging
-          set +e
-          "$MAKENSIS" /NOCONFIG "/DVERSION=${{ steps.ver.outputs.version }}" installer.nsi 2>&1 | tee /tmp/quickswitch-nsis.log
-          code=${PIPESTATUS[0]}
-          if [ "$code" -ne 0 ]; then
-            echo "::error title=NSIS 构建失败::$(tail -n 12 /tmp/quickswitch-nsis.log | tr '\n' ' ')"
-          fi
-          exit "$code"
+          $log = Join-Path $env:RUNNER_TEMP 'quickswitch-nsis.log'
+          Push-Location packaging
+          & $makensis /NOCONFIG "/DVERSION=${{ steps.ver.outputs.version }}" installer.nsi *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) {
+            $tail = (Get-Content $log -Tail 12) -join ' '
+            Write-Output "::error title=NSIS 构建失败::$tail"
+            exit $code
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
