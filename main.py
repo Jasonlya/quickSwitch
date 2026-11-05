@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 import uuid
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -46,7 +47,7 @@ from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 TARGETS = ("mac", "win")
 
 
@@ -355,6 +356,7 @@ class QuickSwitchApp:
         config_file: Optional[Path] = None,
         events: Optional[EventBuffer] = None,
         web: Optional[bool] = None,
+        first_run: bool = False,
     ) -> None:
         self.cfg = cfg
         self.dry_run = dry_run
@@ -363,6 +365,7 @@ class QuickSwitchApp:
         self.hostname = socket.gethostname()
         self.platform = platform.system()
         self.config_file = Path(config_file) if config_file else config_path(None)
+        self.first_run = first_run
         self.log_path = log_file()
         self.events = events
         self.loop = asyncio.new_event_loop()
@@ -621,6 +624,17 @@ class QuickSwitchApp:
         if not self.use_tray:
             # 无托盘时把带令牌的地址打到控制台，直接点开就能用
             print(f"Web 控制台：{console.url}", file=sys.stderr, flush=True)
+        # 首次运行（还没有配置文件）：直接把设置页面打开，用户只需填对端地址和密钥
+        if self.use_tray and self.first_run:
+            log.info("首次运行：已打开设置页面，填写「对端地址」与「预共享密钥」后保存即可")
+            self._open_console()
+
+    def _open_console(self) -> None:
+        if self.web is None:
+            log.warning("Web 控制台未启动，打不开设置页面；可查看日志里的地址，或去掉 --no-web")
+            return
+        with contextlib.suppress(Exception):
+            webbrowser.open(self.web.url)
 
     # ---------------------------------------------------------------- 热键
     def _setup_hotkeys(self) -> None:
@@ -696,6 +710,9 @@ class QuickSwitchApp:
         if self.quick.ddc.dry_run:
             log.info("当前为 dry-run 模式，不会真正切换显示器")
 
+    def _tray_open_console(self, icon, item) -> None:
+        self._open_console()
+
     def _tray_quit(self, icon, item) -> None:
         icon.stop()
 
@@ -712,12 +729,13 @@ class QuickSwitchApp:
             pystray.MenuItem("切到 Mac", self._tray_switch("mac")),
             pystray.MenuItem("切到 Windows", self._tray_switch("win")),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("打开设置页面", self._tray_open_console),
             pystray.MenuItem("查看状态（写入日志）", self._tray_status),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", self._tray_quit),
         )
         self.icon = pystray.Icon("QuickSwitch", tray_image(), "QuickSwitch", menu)
-        log.info("托盘图标已启动（右键菜单可手动切换）")
+        log.info("托盘图标已启动（右键菜单可切换、打开设置页面）")
         self.icon.run()
         self.icon = None
 
@@ -1216,6 +1234,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 0
     path = config_path(args.config)
+    first_run = not path.exists()
     try:
         cfg = load_config(args.config)
         if args.role:
@@ -1278,6 +1297,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"切换到 {LABEL[args.once]}：" + ("成功" if ok else "失败（详见上方日志）"))
         return 0 if ok else 1
 
+    if first_run:
+        # 首次常驻启动就选对角色：Windows 是 server，macOS 是 client。
+        cfg["role"] = "client" if platform.system() == "Darwin" else "server"
+        save_config(cfg, str(path))
+
     app = QuickSwitchApp(
         cfg,
         dry_run=args.dry_run,
@@ -1285,6 +1309,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         config_file=path,
         events=events,
         web=False if args.no_web else None,
+        first_run=first_run,
     )
     return app.run()
 

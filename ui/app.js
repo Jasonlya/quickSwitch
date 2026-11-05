@@ -159,6 +159,8 @@ function renderStatus(status) {
   rows($("kvLink"), [
     ["角色", text(status.role) + (status.role === "server" ? "（本机为 Windows 侧）" : "（本机为 macOS 侧）")],
     ["监听端口", text(status.listen_port)],
+    ["本机 IP", (status.host.ips && status.host.ips.length)
+      ? status.host.ips.join(" / ") + "（填到另一台电脑的「对端地址」里）" : block(null)],
     ["最近切换目标", status.state ? LABEL[status.state] : DASH],
     ["dry-run", yesNo(status.dry_run)],
     ["对端地址", text(status.peer.host) + ":" + text(status.peer.port)],
@@ -329,6 +331,9 @@ const CONFIG_FIELDS = [
     { path: "discovery.interval", type: "number", min: 0.1, step: 0.5 },
     { path: "discovery.ttl", type: "number", min: 1, step: 0.5 },
     { path: "discovery.broadcast", type: "text" },
+  ] },
+  { group: "安全", fields: [
+    { path: "auth.secret", type: "password" },
   ] },
   { group: "显示器 DDC", fields: [
     { path: "ddc.monitor_id", type: "text" },

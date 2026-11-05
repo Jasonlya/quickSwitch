@@ -245,9 +245,23 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(payload["config_path"], str(self.config_file))
         self.assertEqual(set(payload["values"]), {"role", "peer_host", "peer_port",
                                                   "listen_port", "debounce", "log_level",
-                                                  "hotkeys", "network", "discovery", "ddc"})
+                                                  "hotkeys", "network", "discovery", "auth", "ddc"})
         self.assertIn("role", payload["restart_prefixes"])
+        self.assertIn("auth.", payload["restart_prefixes"])
         self.assertIn("ddc.", payload["immediate_prefixes"])
+
+    def test_config_save_accepts_pre_shared_secret(self) -> None:
+        secret = "two-machines-same-secret-2026"
+        status, payload, _ = self.request(
+            "POST", "/api/config", {"values": {"auth": {"secret": secret}}}, token=self.token
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["changed"], ["auth.secret"])
+        self.assertTrue(payload["restart_required"])
+        self.assertEqual(self.app.cfg["auth"]["secret"], secret)
+        on_disk = json.loads(self.config_file.read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["auth"]["secret"], secret)
 
     def test_config_save_applies_and_flags_restart(self) -> None:
         body = {"values": {

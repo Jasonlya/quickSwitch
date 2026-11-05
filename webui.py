@@ -16,6 +16,7 @@ import ipaddress
 import json
 import logging
 import secrets
+import socket
 import sys
 import threading
 import time
@@ -38,6 +39,23 @@ def _ui_dir() -> Path:
     if getattr(sys, "_MEIPASS", None) and bundled.is_dir():
         return bundled
     return Path(__file__).resolve().parent / "ui"
+
+
+def local_ipv4_addresses() -> List[str]:
+    """本机局域网 IPv4（用于提示「在另一台机器上填这个地址」）；不发起真实流量。"""
+    found = set()
+    with contextlib.suppress(OSError):
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            found.add(info[4][0])
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("1.1.1.1", 80))   # UDP connect 不发包，只用来选中默认出口网卡
+        found.add(probe.getsockname()[0])
+    except OSError:
+        pass
+    finally:
+        probe.close()
+    return sorted(ip for ip in found if not ip.startswith(("127.", "169.254.")))
 
 
 UI_DIR = _ui_dir()
@@ -67,6 +85,7 @@ EDITABLE: Dict[str, Any] = {
     "network": {"ack_timeout": None, "ping_interval": None, "reconnect_interval": None,
                 "reconnect_max_interval": None, "connect_wait": None},
     "discovery": {"enabled": None, "port": None, "interval": None, "ttl": None, "broadcast": None},
+    "auth": {"secret": None},
     "ddc": {
         "monitor_id": None,
         "display_index": None,
@@ -100,6 +119,7 @@ RESTART_PREFIXES = (
     "peer_host",
     "peer_port",
     "listen_port",
+    "auth.",
     "hotkeys.",
     "discovery.",
 )
@@ -289,6 +309,7 @@ class WebConsole:
             "host": {
                 "name": app.hostname,
                 "platform": app.platform,
+                "ips": local_ipv4_addresses(),
             },
             "role": cfg.get("role"),
             "state": quick.state,

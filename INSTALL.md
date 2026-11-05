@@ -1,6 +1,6 @@
 # QuickSwitch 安装与使用指南
 
-> 面向使用者。完整的配置项、通信协议与验收清单见 [README.md](README.md)；打包与签名/公证见 README 第 7 节。
+> 面向使用者。下载与首次使用速览见根目录 [README.md](README.md)；完整配置、通信协议、验收与打包发布见 [docs/TECHNICAL.md](docs/TECHNICAL.md)。
 
 一台 Windows（键鼠接在它上面）＋ 一台 Mac，共用一个显示器。按一次快捷键，显示器输入源和键鼠控制权一起切过去；
 即使对端没响应，本机这一半也照样生效。
@@ -43,60 +43,50 @@
 
 ## 2. 安装
 
-两种方式任选：**方式 A** 是打包好的成品，目标机不用装 Python；**方式 B** 是源码运行，需要 Python 3.9+。
+推荐直接从 [GitHub Releases](https://github.com/Jasonlya/quickswitch/releases/latest) 下载安装包。
+安装包自带 Python 运行时、托盘依赖和网页设置页，目标机不需要安装 Python 或 pip。
 
-### 2.1 方式 A：用打包好的成品（推荐）
+### 2.1 macOS（推荐安装包）
 
-| | macOS | Windows |
-| --- | --- | --- |
-| 产物 | `QuickSwitch.app`（约 25 MB） | `QuickSwitch.exe`（单个文件） |
-| 自带 | Python 运行时、依赖、网页控制台前端 | 同左 |
-| 不含 | Deskflow、DDC 工具 | 同左 |
-| 配置 | `~/.quickswitch/config.json`（不在 app 包内，升级不丢） | `%USERPROFILE%\.quickswitch\config.json` |
+下载时按芯片选择：
 
-#### macOS
+- Apple 芯片（M1/M2/M3/M4）：`QuickSwitch-1.2.0-macOS-arm64.dmg`
+- Intel 芯片：`QuickSwitch-1.2.0-macOS-x64.dmg`
+- 不确定时，在终端运行 `uname -m`：`arm64` 选 arm64，`x86_64` 选 x64。
 
-1. 把 `QuickSwitch.app` 拖进「应用程序」。
-2. 双击启动。当前产物**未签名 / 未公证**，若提示「无法验证开发者」：
-   在 app 上右键 →「打开」→ 再点「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」。
-   从别人机器拷来的还会带隔离属性，本地自测可以执行：
+安装步骤：
 
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/QuickSwitch.app
-   ```
-
+1. 打开 DMG，把 `QuickSwitch.app` 拖到 `Applications`（应用程序）文件夹。
+2. 首次打开若提示「无法验证开发者」：在 App 上右键 →「打开」→ 再点「打开」。
+   当前 Release 未签名 / 未公证；如果系统仍拦截，可到「系统设置 → 隐私与安全性」点「仍要打开」。
 3. 首次启动可能弹「允许 QuickSwitch 查找并连接到本地网络上的设备」→ 点**允许**；
    拒绝的话对端通知发不出去（本机切换仍可用）。
-4. 菜单栏出现 QuickSwitch 图标 = 启动成功。程序不进 Dock，属于正常的菜单栏程序。
+4. 菜单栏出现 QuickSwitch 图标 = 启动成功，首次运行会自动打开设置页面。程序不进 Dock，属于正常的菜单栏程序。
 
-命令行自检（成品包也能用）：
+命令行自检：
 
 ```bash
 /Applications/QuickSwitch.app/Contents/MacOS/QuickSwitch --status
 ```
 
-#### Windows
+### 2.2 Windows（推荐安装包）
 
-1. 新建 `C:\Tools\quickswitch\`，把 `QuickSwitch.exe` 放进去。
-2. 双击运行。未签名时 SmartScreen 会拦一次：「更多信息」→「仍要运行」。
-3. 放行监听端口（管理员 PowerShell，只需做一次）：
-
-   ```powershell
-   netsh advfirewall firewall add rule name="QuickSwitch" dir=in action=allow protocol=TCP localport=8765
-   ```
-
-4. 需要全局热键就以**管理员身份运行**；只用托盘菜单 / 网页的话普通权限即可。
+1. 下载并双击 `QuickSwitch-Setup-1.2.0.exe`，在 UAC 提示中点「是」。
+2. 未签名版本首次运行可能弹 SmartScreen：点「更多信息」→「仍要运行」。
+3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765，并写入卸载入口。
+4. 从桌面或开始菜单启动 QuickSwitch；首次运行会自动打开设置页面。
+5. Windows 全局热键需要管理员权限，快捷方式已设置为以管理员身份运行；每次启动出现 UAC 时点「是」即可。
 
 命令行自检：
 
 ```bat
-C:\Tools\quickswitch\QuickSwitch.exe --status
+"%ProgramFiles%\QuickSwitch\QuickSwitch.exe" --status
 ```
 
-> 未签名产物只适合在**本机**或你信任的机器上这样用。要给别人下载安装，必须做完签名
-> （macOS 还要公证），否则会被 Gatekeeper / SmartScreen 拦下 —— 见 README 第 7 节。
+> 当前 Release 未使用商业代码签名证书。macOS Gatekeeper 与 Windows SmartScreen 会给出一次提示，
+> 按上面的「右键打开 / 仍要运行」操作即可。正式对外分发若希望完全无提示，需要 Developer ID 公证与 Windows 代码签名。
 
-### 2.2 方式 B：从源码运行
+### 2.3 从源码运行（开发者）
 
 ```bash
 cd quickswitch
@@ -112,21 +102,23 @@ Windows 可以直接双击 `scripts\quickstart-windows.bat`（保留控制台日
 
 ## 3. 首次配置（两端各做一次）
 
-### 3.1 生成配置文件
+### 3.1 第一次启动
 
-成品包与源码读同一个文件：
+安装包首次启动时会自动打开设置页面，并在下面位置生成配置：
 
 - macOS：`~/.quickswitch/config.json`
 - Windows：`%USERPROFILE%\.quickswitch\config.json`
 
-第一次用 `--init-config` 生成一份带默认值的配置：
+如果没有自动打开：右键菜单栏 / 托盘图标 →「打开设置页面」。
+
+也可以手动生成或查看配置文件：
 
 ```bash
 # macOS（成品包）
 /Applications/QuickSwitch.app/Contents/MacOS/QuickSwitch --init-config
 
 # Windows（成品包）
-C:\Tools\quickswitch\QuickSwitch.exe --init-config
+"%ProgramFiles%\QuickSwitch\QuickSwitch.exe" --init-config
 
 # 源码
 python main.py --init-config
@@ -134,14 +126,17 @@ python main.py --init-config
 
 也可以直接在网页控制台「配置」区块里改（只允许改白名单字段），省得手动编辑 JSON。
 
-### 3.2 最少改这四项
+### 3.2 先填这三项
 
 | 字段 | 例子 | 说明 |
 | --- | --- | --- |
-| `role` | Windows 填 `server`，macOS 填 `client` | 只有 `server` 会注册全局热键 |
 | `peer_host` | 对端局域网 IP，如 `192.168.1.101` | 也可设 `"auto"` 开局域网自动发现 |
+| `role` | Windows 填 `server`，macOS 填 `client` | 首次常驻启动会按系统自动选好；只有 `server` 注册全局热键 |
+| `auth.secret` | 两端填同一个 16 位以上的随机字符串 | 在设置页「安全」区块填写；两端必须一致，保存后重启 |
 | `listen_port` / `peer_port` | 两端都用 `8765` | 两边必须一致，且防火墙要放行 |
-| `ddc.mac_input` / `ddc.win_input` | 常见是 `15` / `17` | 必须按你的显示器实际值填，见 3.3 |
+
+设置页「连接」区块会显示本机局域网 IP；把它填到**另一台电脑**的「对端地址」里。
+DDC 路径和输入源取值如果默认值不匹配，再按 3.3 调整。
 
 Windows 端还要确认 DDC 工具路径：
 
@@ -164,23 +159,23 @@ python3 main.py --detect-inputs --no-write                     # 只看结果，
 
 成品包同样可以带参数运行（路径见 3.1）。网页控制台里也有「探测输入源」按钮，效果相同。
 
-### 3.4 配预共享密钥（强烈建议）
+### 3.4 配预共享密钥（必须）
 
-`auth.secret` 为空时，同网段任何程序只要往 8765 发一行 JSON 就能切走你的显示器：
+`auth.secret` 为空时，同网段任何程序只要往 8765 发一行 JSON 就能切走你的显示器。推荐直接在设置页的「安全」区块填写，也可以生成后复制到两端：
 
 ```bash
 python3 main.py --gen-secret
 # {"auth": {"secret": "ReKQONRgzal_BnZAnRya3bx_FpCbLXQaLe1dDGSB5zk"}}
 ```
 
-把这行合并进**两端**的配置（`auth.secret` 填同一个值），然后重启两端。
+把同一个值填进**两端**的「安全 → auth.secret」，保存后重启两端。
 
 ### 3.5 自检：什么才算配好了
 
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.1.0）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.0）
 密钥校验     : 已通过（hmac-sha256）
 DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 ```
@@ -201,7 +196,7 @@ DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 
 | 方式 | 怎么用 | 前提 |
 | --- | --- | --- |
-| 托盘 / 菜单栏 | 右键图标 →「切到 Mac」/「切到 Windows」/「查看状态（写入日志）」/「退出」 | 无 |
+| 托盘 / 菜单栏 | 右键图标 →「打开设置页面」/「切到 Mac」/「切到 Windows」/「查看状态（写入日志）」/「退出」 | 无 |
 | 全局热键 | `Ctrl+Alt+1` → Mac，`Ctrl+Alt+2` → Windows | 只在 Windows `server` 端注册，需管理员权限 |
 | 网页控制台 | 浏览器打开带令牌的地址，点按钮 | 程序正在运行 |
 
@@ -209,6 +204,7 @@ DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 
 只监听 `127.0.0.1`，每次启动生成新令牌：
 
+- 首次启动会自动在浏览器打开设置页面；
 - 启动日志里会打印 `Web 控制台：http://127.0.0.1:8767/?t=...`；
 - 成品包没有控制台窗口，去 `~/.quickswitch/quickswitch.log` 里找最后一条
   `Web 控制台已启动：...`，把整条地址粘进浏览器。
@@ -233,11 +229,11 @@ QuickSwitch 只管显示器，键鼠控制权归 Deskflow。两边热键要**配
 
 **macOS**：系统设置 → 通用 → 登录项与扩展 →「＋」→ 选 `/Applications/QuickSwitch.app`。
 
-**Windows**（管理员 PowerShell，指向 exe，不需要 Python）：
+**Windows**（管理员 PowerShell，指向安装后的 exe，不需要 Python）：
 
 ```powershell
-$exe = "C:\Tools\quickswitch\QuickSwitch.exe"
-$action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory "C:\Tools\quickswitch"
+$exe = "$env:ProgramFiles\QuickSwitch\QuickSwitch.exe"
+$action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory "$env:ProgramFiles\QuickSwitch"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
 Register-ScheduledTask -TaskName QuickSwitch -Action $action -Trigger $trigger -Principal $principal -Force
@@ -263,9 +259,9 @@ Unregister-ScheduledTask -TaskName QuickSwitch -Confirm:$false
 
 | 操作 | macOS | Windows |
 | --- | --- | --- |
-| 升级 | 退出程序 → 用新的 `.app` 覆盖「应用程序」里的旧版 → 重新打开 | 退出程序 → 用新的 `.exe` 覆盖旧文件 → 重新打开 |
+| 升级 | 退出程序 → 打开新 DMG → 把新 App 拖进「应用程序」覆盖旧版 | 退出程序 → 运行新版 Setup 安装包覆盖安装 |
 | 配置 | 保留在 `~/.quickswitch/config.json`，升级不会覆盖 | 同左 |
-| 卸载 | 删 app；要连配置一起清就删 `~/.quickswitch/` | 删 exe 与目录；删 `%USERPROFILE%\.quickswitch\`；删防火墙规则与计划任务 |
+| 卸载 | 删 App；要连配置一起清就删 `~/.quickswitch/` | 「设置 → 应用 → QuickSwitch → 卸载」；要连配置一起清再删 `%USERPROFILE%\.quickswitch\` |
 
 清理 Windows 防火墙规则：
 
