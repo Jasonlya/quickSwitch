@@ -490,9 +490,12 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
   验证了安装/卸载、快捷方式、防火墙规则与注册表段落在语法层面可构建。
 - **已验证**：首次启动（配置文件不存在）会自动打开设置页，macOS 首次角色自动选为 `client`；
   设置页显示本机局域网 IP，并可在「安全」区块编辑 `auth.secret`（128 项测试通过）。
+- **已验证**：GitHub Actions 的 Windows runner 已真实完成 PyInstaller + NSIS 构建，发布资产
+  `QuickSwitch-Setup-1.2.0.exe` 是有效的 NSIS 安装器；两个 DMG 下载后通过 `hdiutil verify`，
+  `arm64` 包内二进制为 Mach-O arm64，`x64` 包内二进制为 Mach-O x86_64，版本均为 `1.2.0`。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；
-  Windows 的 PyInstaller + 真实 exe 安装测试——本机没有 Windows；GitHub Actions 的 Windows job 会在发布时完成真实构建。
+  Windows 实机安装 UI、SmartScreen 与卸载流程也尚未在实体 Windows 上人工点测。
   首次在真实签名环境运行时建议先跑 `--check` / `-Check` 看缺什么。
 
 ## 8. 验收清单（对应方案第 9 节）

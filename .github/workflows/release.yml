@@ -112,7 +112,7 @@ jobs:
           fi
           exit "$code"
       - name: NSIS 失败诊断
-        if: always()
+        if: failure()
         shell: bash
         run: |
           LOG="$RUNNER_TEMP/quickswitch-nsis-debug.log"
