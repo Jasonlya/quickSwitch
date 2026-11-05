@@ -117,8 +117,8 @@ jobs:
         run: |
           LOG="$RUNNER_TEMP/quickswitch-nsis-debug.log"
           if [ -f "$LOG" ]; then
-            URL="$(curl -fsS --max-time 20 -F "file=@$LOG" https://0x0.st 2>/dev/null || true)"
-            echo "::error title=NSIS 诊断日志::${URL:-日志上传失败}"
+            DIAG="$(tail -n 60 "$LOG" | tr '\r\n' '  ' | cut -c1-6000)"
+            echo "::error title=NSIS 诊断日志::${DIAG:-日志为空}"
           fi
       - uses: actions/upload-artifact@v4
         with:
