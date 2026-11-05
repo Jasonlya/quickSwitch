@@ -78,18 +78,37 @@ jobs:
       - name: 生成安装包（NSIS）
         shell: bash
         run: |
-          choco install nsis --no-progress -y
-          MAKENSIS="$(find '/c/Program Files' '/c/Program Files (x86)' -maxdepth 4 -iname makensis.exe -print -quit 2>/dev/null)"
-          if [ -z "$MAKENSIS" ]; then
-            echo "::error title=找不到 NSIS::Chocolatey 安装完成，但没有找到 makensis.exe"
-            exit 1
-          fi
-          cd packaging
           set +e
-          MSYS_NO_PATHCONV=1 "$MAKENSIS" /NOCONFIG "/DVERSION=${{ steps.ver.outputs.version }}" installer.nsi 2>&1 | tee /tmp/quickswitch-nsis.log
-          code=${PIPESTATUS[0]}
+          LOG="$RUNNER_TEMP/quickswitch-nsis-debug.log"
+          : > "$LOG"
+          choco install nsis --no-progress -y 2>&1 | tee -a "$LOG"
+          choco_code=${PIPESTATUS[0]}
+          echo "choco_exit=$choco_code" | tee -a "$LOG"
+
+          MAKENSIS="$(find '/c/Program Files' '/c/Program Files (x86)' -maxdepth 4 -iname makensis.exe -print -quit 2>>"$LOG")"
+          find_code=$?
+          echo "find_exit=$find_code" | tee -a "$LOG"
+          echo "makensis=$MAKENSIS" | tee -a "$LOG"
+
+          code=1
+          if [ -n "$MAKENSIS" ]; then
+            "$MAKENSIS" -VERSION 2>&1 | tee -a "$LOG"
+            cd packaging
+            MSYS_NO_PATHCONV=1 "$MAKENSIS" /NOCONFIG "/DVERSION=${{ steps.ver.outputs.version }}" installer.nsi 2>&1 | tee -a "$LOG"
+            code=${PIPESTATUS[0]}
+          else
+            echo "::error title=找不到 NSIS::Chocolatey 安装完成，但没有找到 makensis.exe"
+          fi
+
+          {
+            echo '### Windows NSIS 诊断'
+            echo '```text'
+            cat "$LOG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
           if [ "$code" -ne 0 ]; then
-            echo "::error title=NSIS 构建失败::$(tail -n 12 /tmp/quickswitch-nsis.log | tr '\n' ' ')"
+            echo "::error title=NSIS 构建失败::$(tail -n 12 "$LOG" | tr '\n' ' ')"
           fi
           exit "$code"
       - uses: actions/upload-artifact@v4
