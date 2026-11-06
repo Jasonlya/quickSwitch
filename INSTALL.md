@@ -90,6 +90,18 @@ QuickSwitch macOS 版只支持 Apple Silicon（M1/M2/M3/M4），不再提供 Int
 /Applications/QuickSwitch.app/Contents/MacOS/QuickSwitch --status
 ```
 
+如果双击没有反应、终端启动一直卡住，或此前执行 `xattr -rd` 时看到大量
+`Operation not permitted`，通常是 macOS 缓存了错误的启动策略记录。先彻底退出 QuickSwitch，
+再刷新 LaunchServices：
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/QuickSwitch.app
+open -a /Applications/QuickSwitch.app
+```
+
+不要再递归执行 `xattr -rd com.apple.quarantine`。较新的 macOS 会保护 App 包内的文件，
+递归修改会失败并可能留下异常的启动记录；正常安装只需要上面的「右键 → 打开」。
+
 ### 2.2 Windows（推荐安装包）
 
 1. 下载并双击最新 Release 里的 `QuickSwitch-Setup-*.exe`，在 UAC 提示中点「是」。
@@ -329,7 +341,9 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch Discovery"
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | macOS 双击提示「无法验证开发者」 | 未签名 / 未公证。右键 → 打开；或系统设置 → 隐私与安全性 → 仍要打开 |
-| macOS 提示 app「已损坏」 | 隔离属性。本地自测执行 `xattr -dr com.apple.quarantine /Applications/QuickSwitch.app` |
+| macOS 双击无反应，或终端启动卡在 `_dyld_start` | 启动策略缓存异常。先退出所有 QuickSwitch 进程，再执行 `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/QuickSwitch.app`，然后重新打开 App |
+| macOS 执行 `xattr -rd` 报 `Operation not permitted` | 新版 macOS 会保护 App 包内容，不需要递归清理隔离属性。停止该命令，改用「右键 App → 打开」；若仍无反应，按上一行刷新 LaunchServices |
+| macOS 提示 app「已损坏」 | 先重新从 DMG 拖入「应用程序」；仍被拦截时右键 → 打开，或到系统设置 → 隐私与安全性 → 仍要打开。不要递归修改 App 包内的扩展属性 |
 | Windows 首次运行弹 SmartScreen | 未签名。更多信息 → 仍要运行；正式分发需代码签名 |
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高；新版已启用 Per-Monitor V2 DPI 感知。必要时更新 Microsoft Edge WebView2 Runtime |
 | Windows 启动时有多个终端窗口闪动 | 升级到 `v2.0.1` 或更高。旧版会反复调用 `tasklist`/DDC 工具等控制台程序；新版统一使用 `CREATE_NO_WINDOW` 隐藏子进程窗口 |

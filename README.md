@@ -63,6 +63,7 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 | 现象 | 处理 |
 | --- | --- |
 | macOS 提示「无法验证开发者」 | 右键 App →「打开」→「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」 |
+| macOS 双击无反应或启动卡住 | 先退出 QuickSwitch，再在终端执行 `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/QuickSwitch.app`，然后重新打开 |
 | Windows 提示 SmartScreen | 点「更多信息」→「仍要运行」 |
 | 对端一直显示未连接 | 确认两台电脑在同一局域网；Windows 防火墙已放行 TCP `8765` 和自动发现用的 UDP `8766`；macOS 允许 QuickSwitch 访问本地网络 |
 | 点切换没有反应 / 找不到 DDC/CI | 按显示器机身的按钮或摇杆打开 OSD 菜单（不是 Windows 显示设置），在「系统 / 设置 / 其他设置 / OSD 设置 / 管理」里找「DDC/CI」（也可能叫 DDC/CI Support、Monitor Control、MCCS 或 Display Data Channel），设为「开 / On」，保存后等 5 秒再试。仍无效时改用直连视频线，绕开 KVM、扩展坞或切换器 |

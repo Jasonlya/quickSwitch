@@ -61,7 +61,10 @@ QuickSwitch 安装说明
 3. 首次打开若提示「无法验证开发者」：
    在 QuickSwitch 上右键 →「打开」→ 再点「打开」。
    （这是未签名版本的系统提示；签名并公证的版本不会出现。）
-4. 启动后菜单栏会出现图标，首次运行会自动打开配置向导：
+4. 如果双击没有反应，退出 QuickSwitch 后在「终端」执行：
+   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/QuickSwitch.app
+   open -a /Applications/QuickSwitch.app
+5. 启动后菜单栏会出现图标，首次运行会自动打开配置向导：
    按「连接 → 安全 → 显示器 → 完成」四步操作。两端填同一个预共享密钥，
    完成后退出并重新打开 QuickSwitch 即可使用。
 
