@@ -75,6 +75,20 @@ def attach_parent_console() -> None:
         pass  # 无控制台可用时静默降级，界面与日志不受影响
 
 
+def configure_console_encoding() -> None:
+    """让 Windows 控制台和重定向输出都使用 UTF-8，避免中文状态输出报编码错误。"""
+    if platform.system() == "Windows":
+        with contextlib.suppress(Exception):
+            import ctypes
+
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        with contextlib.suppress(AttributeError, OSError, ValueError):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def setup_logging(level: str = "INFO", *, console_level: Optional[str] = None,
                   log_path: Optional[Path] = None, events: Optional[EventBuffer] = None) -> None:
     target = log_path or log_file()
@@ -1443,6 +1457,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     attach_parent_console()
+    configure_console_encoding()
     args = build_parser().parse_args(argv)
     if args.settings_window:
         return run_settings_window(args.settings_window)

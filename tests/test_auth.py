@@ -263,7 +263,7 @@ class CommandLineTests(unittest.TestCase):
     def test_gen_secret_prints_pasteable_config(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(MAIN), "--gen-secret"],
-            capture_output=True, text=True, timeout=20, env=self.env,
+            capture_output=True, text=True, encoding="utf-8", timeout=20, env=self.env,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         secret = json.loads(proc.stdout)["auth"]["secret"]
@@ -273,7 +273,7 @@ class CommandLineTests(unittest.TestCase):
 
         again = subprocess.run(
             [sys.executable, str(MAIN), "--gen-secret"],
-            capture_output=True, text=True, timeout=20, env=self.env,
+            capture_output=True, text=True, encoding="utf-8", timeout=20, env=self.env,
         )
         self.assertNotEqual(json.loads(again.stdout)["auth"]["secret"], secret)
 
@@ -290,7 +290,7 @@ class CommandLineTests(unittest.TestCase):
         }), encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(MAIN), "--status", "--config", str(config)],
-            capture_output=True, text=True, timeout=60, env=self.env,
+            capture_output=True, text=True, encoding="utf-8", timeout=60, env=self.env,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("密钥校验", proc.stdout)

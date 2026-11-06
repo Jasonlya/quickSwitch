@@ -46,6 +46,7 @@ class CliTests(unittest.TestCase):
             [sys.executable, str(MAIN), "--config", str(self.config), *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             env=self.env,
             cwd=str(PROJECT_DIR),
             timeout=90,
@@ -91,6 +92,7 @@ class CliTests(unittest.TestCase):
             [sys.executable, str(MAIN), "--config", str(target), "--init-config"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             cwd=str(PROJECT_DIR),
             timeout=60,
         )

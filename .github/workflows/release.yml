@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python -m unittest discover -s tests -t . -v 2>&1 | tee "$RUNNER_TEMP/unit-tests.log"
+          python scripts/run-tests.py --timeout 60 2>&1 | tee "$RUNNER_TEMP/unit-tests.log"
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             python - "$RUNNER_TEMP/unit-tests.log" <<'PY'
