@@ -178,7 +178,7 @@ python3 main.py --gen-secret
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.1）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.2）
 密钥校验     : 已通过（hmac-sha256）
 DDC 后端     : 已找到 /opt/homebrew/bin/m1ddc
 ```
@@ -291,6 +291,7 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch"
 | macOS 双击提示「无法验证开发者」 | 未签名 / 未公证。右键 → 打开；或系统设置 → 隐私与安全性 → 仍要打开 |
 | macOS 提示 app「已损坏」 | 隔离属性。本地自测执行 `xattr -dr com.apple.quarantine /Applications/QuickSwitch.app` |
 | Windows 首次运行弹 SmartScreen | 未签名。更多信息 → 仍要运行；正式分发需代码签名 |
+| Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高；新版已启用 Per-Monitor V2 DPI 感知。必要时更新 Microsoft Edge WebView2 Runtime |
 | 网页打不开 | 端口 8767 被占，或被 `--no-web` 关了；去日志里看实际地址与令牌 |
 | 首次启动设置窗口晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
 | 点切换没反应 | 确认显示器 OSD 已开启 DDC/CI、视频线为直连；Windows 先看 `--status` 的 DDC 后端是否为 DXVA2，macOS 检查 `ddc.m1ddc_path`；再确认输入源取值 |

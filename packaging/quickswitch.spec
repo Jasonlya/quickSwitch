@@ -137,5 +137,6 @@ else:
         disable_windowed_traceback=False,
         icon=str(HERE / "icon.ico") if IS_WIN else None,
         version=str(HERE / "version_info.txt") if IS_WIN else None,
+        manifest=str(HERE / "windows.manifest") if IS_WIN else None,
         codesign_identity=CODESIGN_IDENTITY,
     )

@@ -80,7 +80,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（1.0.1.0）
+    version_info.txt        Windows exe 的版本资源（1.0.2.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   scripts/
@@ -325,7 +325,7 @@ python3 main.py --gen-secret
 
 ```
 python3 main.py --status
-  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.1）
+  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.2）
   密钥校验     : 已通过（hmac-sha256）
 ```
 
@@ -357,8 +357,8 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe`（**单文件**，自带 Python 运行时、WebView 依赖与 `ui/`） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/` 与 WKWebView 桥接依赖） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.0.1`），
-spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.0.1.0`），不会两处漂移。
+两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.0.2`），
+spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.0.2.0`），不会两处漂移。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
 
@@ -386,7 +386,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-1.0.1.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-1.0.2.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -437,14 +437,14 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 
 ```bash
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-1.0.1-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-1.0.2-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=1.0.1 packaging\installer.nsi
+makensis /DVERSION=1.0.2 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后自动构建
@@ -454,8 +454,8 @@ macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -498,10 +498,10 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v1.0.1` 是 Windows 原生 DDC 与 6 位配对码修复版本，macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v1.0.2` 修复 Windows 高缩放显示器下设置窗口字体模糊，macOS 安装包仅提供 Apple Silicon（arm64）。
 
 - **已验证**：首次启动自动打开四步配置向导（连接 / 安全 / 显示器 / 完成）；
-  `setup.completed` 支持旧配置迁移，已有配置不会重复弹向导。148 项测试通过，`node --check ui/app.js`
+  `setup.completed` 支持旧配置迁移，已有配置不会重复弹向导。151 项测试通过，`node --check ui/app.js`
   与 Python 编译检查通过；1120×820、780×700、浅色与深色布局已检查。
 - **已验证**：`build-macos.sh --no-sign` 产出 arm64 `.app`，`build-dmg.sh` 产出 DMG 并通过
   `hdiutil verify`；成品 App 会拉起独立的 `--settings-window` 子进程，`/api/status` 返回真实
@@ -509,7 +509,9 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 - **已验证（本机 macOS）**：`m1ddc` 读取当前输入源正常；运行中的 App 实际执行
   `Windows → 15`、`Mac → 18` 两次 DDC 切换并回读一致。macOS 自动使用 `client` 角色，
   Windows 自动使用 `server` 角色。
-- **发布产物**：GitHub Actions 在 `v1.0.1` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **已验证（Windows 高 DPI 配置）**：Windows EXE manifest 声明 Per-Monitor V2，
+  `settings_window.py` 在 WebView2 创建前提供运行时兜底；manifest 解析和专项测试通过。
+- **发布产物**：GitHub Actions 在 `v1.0.2` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；

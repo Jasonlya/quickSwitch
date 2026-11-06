@@ -49,7 +49,7 @@ from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 TARGETS = ("mac", "win")
 
 

@@ -140,8 +140,10 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch 1.0.1 修复版本。
+            QuickSwitch 1.0.2 修复版本。
 
+            - 修复 Windows 高缩放显示器下设置窗口字体模糊：EXE 启用 Per-Monitor V2 DPI 感知
+            - Windows 字体优先使用 Segoe UI，简体中文回退到 Microsoft YaHei UI
             - Windows 内置 DXVA2 DDC 后端，不再需要安装 `ControlMyMonitor.exe`
             - Windows 优先使用原生显示器控制，外部工具仅作为可选回退
             - 配对码缩短为 6 位，便于在两端手动输入；旧版长密钥继续兼容

@@ -61,6 +61,7 @@ Windows 端已内置原生 DDC（DXVA2），**不需要安装 ControlMyMonitor**
 | 对端一直显示未连接 | 确认两台电脑在同一局域网、端口都是 `8765`、防火墙已放行；macOS 允许 QuickSwitch 访问本地网络 |
 | 点切换没有反应 | Windows 端确认显示器 OSD 已开启 DDC/CI、视频线为直连；Mac 端确认 `ddc.m1ddc_path` 正确。再用设置页的「探测输入源」确认取值 |
 | Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包的回退路径。最新版使用 Windows 内置 DXVA2，不需要该文件；升级后重试，ControlMyMonitor 仅作为可选回退 |
+| Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高版本；该版本启用 Per-Monitor V2 DPI 感知。升级后仍模糊时，检查 Windows 显示缩放并更新 WebView2 Runtime |
 | 显示器切了但键鼠没过去 | 这是 Deskflow 的连接或热键配置问题，不是 QuickSwitch 负责的范围 |
 | 想查看日志 | macOS：`~/.quickswitch/quickswitch.log`；Windows：`%USERPROFILE%\.quickswitch\quickswitch.log` |
 | 想卸载 | macOS 删除「应用程序」里的 QuickSwitch；Windows 用「设置 → 应用 → QuickSwitch → 卸载」。用户配置默认保留 |
@@ -76,8 +77,8 @@ Windows 端已内置原生 DDC（DXVA2），**不需要安装 ControlMyMonitor**
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

@@ -1,8 +1,46 @@
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import settings_window
+
+
+class _DpiFunction:
+    def __init__(self, result=1):
+        self.result = result
+        self.calls = []
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, value):
+        self.calls.append(value)
+        return self.result
+
+
+class _DpiDll:
+    def __init__(self, *, context=None, awareness=None, legacy=None):
+        if context is not None:
+            self.SetProcessDpiAwarenessContext = context
+        if awareness is not None:
+            self.SetProcessDpiAwareness = awareness
+        if legacy is not None:
+            self.SetProcessDPIAware = legacy
+
+
+class _FakeCtypes:
+    c_void_p = staticmethod(lambda value: ("pointer", value))
+    c_int = int
+    c_long = int
+    c_bool = bool
+
+    def __init__(self, dlls):
+        self._dlls = dlls
+        self.loaded = []
+
+    def WinDLL(self, name, use_last_error=True):
+        self.loaded.append(name)
+        return self._dlls[name]
 
 
 class ConsoleUrlTests(unittest.TestCase):
@@ -25,6 +63,32 @@ class ConsoleUrlTests(unittest.TestCase):
         ):
             with self.subTest(url=url):
                 self.assertFalse(settings_window.is_local_console_url(url))
+
+
+class WindowsDpiTests(unittest.TestCase):
+    def test_noop_outside_windows(self) -> None:
+        with mock.patch.object(settings_window.sys, "platform", "darwin"):
+            self.assertFalse(settings_window.enable_windows_high_dpi())
+
+    def test_prefers_per_monitor_v2_before_importing_webview(self) -> None:
+        set_context = _DpiFunction(True)
+        fake = _FakeCtypes({"user32": _DpiDll(context=set_context)})
+        with mock.patch.object(settings_window.sys, "platform", "win32"), \
+                mock.patch.dict(sys.modules, {"ctypes": fake}):
+            self.assertTrue(settings_window.enable_windows_high_dpi())
+        self.assertEqual(set_context.calls, [("pointer", -4)])
+        self.assertEqual(fake.loaded, ["user32"])
+
+    def test_falls_back_to_per_monitor_awareness(self) -> None:
+        set_awareness = _DpiFunction(0)
+        fake = _FakeCtypes({
+            "user32": _DpiDll(),
+            "shcore": _DpiDll(awareness=set_awareness),
+        })
+        with mock.patch.object(settings_window.sys, "platform", "win32"), \
+                mock.patch.dict(sys.modules, {"ctypes": fake}):
+            self.assertTrue(settings_window.enable_windows_high_dpi())
+        self.assertEqual(set_awareness.calls, [2])
 
 
 class CommandTests(unittest.TestCase):
