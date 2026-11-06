@@ -51,49 +51,9 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 
 > `v2.0.4` 及更早版本升级后，如果开关已经打开仍提示「需要权限」，这是 Ad-hoc 签名绑定的旧 cdhash 失效。升级到 `v2.0.5` 后点设置页「重建 macOS 授权」，再重新打开两个开关即可；后续版本不会重复出现。
 
-## 日常使用
-
-- 按 `Ctrl+Alt+1`：切到 Mac；按 `Ctrl+Alt+2`：切回 Windows。可在「更多信息与设置 → 配置 → 热键」点「录入」重新录制，Esc 取消，点「默认」恢复。
-- QuickSwitch 启动时会自动启动内置键鼠共享核心；退出 QuickSwitch 时会一并停止它。
-- 键鼠共享连接后，任一端复制的文本、HTML 或图片可在另一端直接粘贴。设置页可开关剪贴板共享，并调整单次内容上限（默认 16 MB）。
-- 主界面两个切换按钮下方会显示「键鼠共享 · 已连接 / 等待连接 / 连接异常」；点它可直接展开键鼠共享详情。连接成功表示两端核心已经建立 TCP 连接，失败时会显示可读原因。
-- 主界面的两个切换按钮右侧会直接显示对应热键；在 Mac 上会标注「Windows 键盘」，因为热键由连接键鼠的 Windows 服务端注册，macOS 本机不注册。
-- 切换热键会自动写入键鼠共享配置，一次按键同时切换显示器和键鼠，不需要再去 Deskflow 里重复设置。
-- 也可以右键菜单栏/托盘图标，选择「切到 Mac」或「切到 Windows」。
-- 设置窗口是应用内原生弹窗，不占用浏览器标签页；主界面只保留两个切换按钮。把鼠标停在按钮上，可查看当前输入源、对端连接、密钥校验、DDC 和快捷键摘要。
-- 需要读取/探测输入源、检查连接、修改配置或查看日志时，点「更多信息与设置」展开完整面板。
-
-## 常见问题
-
-| 现象 | 处理 |
-| --- | --- |
-| macOS 提示「无法验证开发者」 | 右键 App →「打开」→「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」 |
-| macOS 双击无反应或启动卡住 | 先退出 QuickSwitch，再在终端执行 `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/QuickSwitch.app`，然后重新打开 |
-| Windows 提示 SmartScreen | 点「更多信息」→「仍要运行」 |
-| 对端一直显示未连接 | 确认两台电脑在同一局域网；Windows 防火墙已放行 TCP `8765` 和自动发现用的 UDP `8766`；macOS 允许 QuickSwitch 访问本地网络 |
-| 点切换没有反应 / 找不到 DDC/CI | 按显示器机身的按钮或摇杆打开 OSD 菜单（不是 Windows 显示设置），在「系统 / 设置 / 其他设置 / OSD 设置 / 管理」里找「DDC/CI」（也可能叫 DDC/CI Support、Monitor Control、MCCS 或 Display Data Channel），设为「开 / On」，保存后等 5 秒再试。仍无效时改用直连视频线，绕开 KVM、扩展坞或切换器 |
-| Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包的回退路径。最新版使用 Windows 内置 DXVA2，不需要该文件；升级后重试，ControlMyMonitor 仅作为可选回退 |
-| Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高版本；该版本启用 Per-Monitor V2 DPI 感知。升级后仍模糊时，检查 Windows 显示缩放并更新 WebView2 Runtime |
-| Windows 启动时终端窗口闪动 | 升级到 `v2.0.1` 或更高版本；旧版轮询核心状态时会短暂创建控制台窗口，新版已统一隐藏这些子进程窗口 |
-| Windows 托盘能打开但设置窗口不显示 | 升级到 `v2.0.3` 或更高版本。`v2.0.2` 已移除误继承的 `SW_HIDE`；`v2.0.3` 还会在覆盖安装前关闭旧进程，并在 WebView 启动失败时自动改用浏览器，避免点击后无反应 |
-| Mac 上按界面的 `Ctrl+Alt+1/2` 没反应 | 热键由连接键鼠的 Windows 服务端注册，macOS 本机不注册；请使用 Windows 键盘，或直接用托盘/菜单栏按钮切换。`v2.0.4` 起界面会明确标注热键来源 |
-| 切到 Mac 后键位不对或中文输入法被改 | 升级到 `v2.0.4`。该版本默认关闭 Deskflow 语言同步，保留 Mac 当前输入源，重启键鼠共享后生效；只有两端键盘布局完全一致时才在设置页开启「同步键盘语言」 |
-| Windows 安装过程或完成页乱码 | 升级到 `v2.0.4`。新版 NSIS 安装器按 UTF-8 编译，修复中文页面乱码；旧版乱码不影响功能 |
-| Mac 已授权、重启后仍提示「需要权限」 | 升级到 `v2.0.5`。旧版 Ad-hoc 签名把授权绑在单次构建的 cdhash 上，换版本后系统设置里的开关会失效。新版已改为稳定签名；升级后展开「更多信息与设置 → 键鼠共享」，点「重建 macOS 授权」，再在系统设置里重新打开「辅助功能」和「输入监控」 |
-| Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`，先做不改变画面的写入自检；输出会包含具体 WinError 和处理建议 |
-| 键鼠共享没有启动 | 点主界面的「键鼠共享」状态入口查看可读结论；也可运行 `--deskflow-status` 确认 `installed`、`bundled`、`running`、`connected` 和 `last_error`。确认 `deskflow.auto_start` 开启；只有强制使用其它路径时才需要设置 `deskflow.path` |
-| 剪贴板没有同步 | 先确认键鼠共享显示「已连接」，再在「配置 → 键鼠共享」确认「共享剪贴板」已勾选。复制内容不能超过「剪贴板上限」；客户端沿用 Windows 端上限。修改后保存会自动重启共享核心 |
-| 自定义热键不生效 | 热键由连接键鼠的 Windows 端注册。在 Windows 的「配置 → 热键」录制后点保存，旧组合键会立即注销；若提示格式无效，请至少按一个 Ctrl/Alt/Shift/Win 修饰键，或使用 F1-F12。修改后 Deskflow 会自动重启 |
-| 从 Mac 切回 Windows 时卡顿、热键一段时间没反应 | 已改为本机 DDC 与远端确认并行：本机成功后立即释放热键，远端仅后台确认，不再等待 macOS 上可能失败重试的 `m1ddc`。升级后重启 QuickSwitch |
-| 显示器切了但键鼠没过去 | 先点「重启键鼠共享」；确认两端 QuickSwitch 都在运行且键鼠共享状态为「已连接」。Windows 安装包会自动放行 TCP `24800`，macOS 需授予辅助功能/输入监控/本地网络权限。若显示「需要权限」或日志出现 `assistive devices does not trust this process` / `failed to create quartz event tap`，在系统设置中允许 QuickSwitch、Deskflow 或 deskflow-core，再重启核心 |
-| 想查看日志 | macOS：`~/.quickswitch/quickswitch.log`；Windows：`%USERPROFILE%\.quickswitch\quickswitch.log` |
-| 想卸载 | macOS 删除「应用程序」里的 QuickSwitch；Windows 用「设置 → 应用 → QuickSwitch → 卸载」。用户配置默认保留 |
-
-更完整的环境检查、权限、开机自启和排错步骤见 [INSTALL.md](INSTALL.md)。
-
 ## 技术文档与开发
 
-- [安装与使用详解](INSTALL.md)
+- [安装、日常使用与排错](INSTALL.md)
 - [完整技术文档](docs/TECHNICAL.md)：配置项、通信协议、接口、验收与打包细节
 - [从源码运行](docs/TECHNICAL.md)：需要 Python 3.9+，普通用户不需要这一步
 
