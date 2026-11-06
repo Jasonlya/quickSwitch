@@ -27,6 +27,7 @@ jobs:
         shell: bash
         run: |
           set +e
+          export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
           python scripts/run-tests.py --timeout 60 2>&1 | tee "$RUNNER_TEMP/unit-tests.log"
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
@@ -36,14 +37,20 @@ jobs:
 
           text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
           blocks = re.split(r"^={70}\n", text, flags=re.MULTILINE)
+          emitted = False
           for block in blocks:
               match = re.match(r"^(FAIL|ERROR): (.+?)\n-+\n(.*)", block, re.DOTALL)
               if not match:
                   continue
+              emitted = True
               title = f"{match.group(1)} {match.group(2)}"[:240]
               message = match.group(3).strip()[-6000:]
               message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
               print(f"::error title={title}::{message}")
+          if not emitted:
+              message = text.strip()[-6000:]
+              message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::error title=测试日志::{message}")
           PY
           fi
           exit "$code"

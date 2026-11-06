@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import subprocess
 import sys
@@ -22,6 +23,10 @@ def iter_test_ids(suite: unittest.TestSuite):
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, OSError, ValueError):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=float, default=60.0, help="单条用例超时秒数")
     parser.add_argument("--max-timeouts", type=int, default=3, help="出现多少次超时后停止")
