@@ -484,6 +484,10 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
+- **已验证**：`v1.2.3` 发布任务成功，Release 包含两个 macOS DMG、Windows Setup 与 `SHA256SUMS.txt`；
+  三个资产下载后的 SHA-256 与校验文件一致，两个 DMG 均通过 `hdiutil verify`。arm64 包内二进制实际运行返回
+  `QuickSwitch 1.2.3`，x64 包内二进制为 Mach-O x86_64，Windows 资产为有效 NSIS 安装器。
+  两个 macOS 包内的 `ui/app.js` 均包含主界面热键标记，README 徽章改为仓库内 SVG，不再依赖外部图片服务。
 - **已验证**：`v1.2.2` 发布任务成功，Release 包含两个 macOS DMG、Windows Setup 与 `SHA256SUMS.txt`；
   三个资产校验和一致，两个 DMG 均通过 `hdiutil verify`。arm64 包内二进制实际运行返回
   `QuickSwitch 1.2.2`，x64 包内二进制为 Mach-O x86_64，Windows 资产为有效 NSIS 安装器。
