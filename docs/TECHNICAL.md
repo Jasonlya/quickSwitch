@@ -50,7 +50,7 @@ Windows 端是 `server`（注册热键），macOS 端是 `client`（只接收 TC
 | 9c | — | `ddc.read_template` / `ddc.read_regex` | 读取能力交给任意工具（如 BetterDisplay CLI）；显示器不支持读 VCP 0x60 时也能自行指定 |
 | 10 | Linux 只在选型表里提到 ddcutil | 已内置 ddcutil 模板 | 顺手支持，成本一次模板 |
 | 11 | 日志只写文件 | 轮转日志（1MB × 3）+ 控制台 | 长期常驻不会把日志写爆 |
-| 12 | — | 本地 Web 控制台（`webui.py` + `ui/`，默认 http://127.0.0.1:8767/） | 托盘菜单只能切两下；配置、当前输入源、DDC 命令与事件日志需要一个能一眼看全、能改配置的界面，且不引入 Electron 之类的重依赖 |
+| 12 | — | 本地 Web 控制台（`webui.py` + `ui/`，默认 http://127.0.0.1:8767/）+ 原生 WebView 设置窗口（`settings_window.py`） | 托盘菜单只能切两下；配置、当前输入源、DDC 命令与事件日志需要一个能一眼看全、能改配置的界面，同时避免每次设置都打开浏览器标签页，也不引入 Electron 之类的重依赖 |
 | 13 | — | 启动时后台回读一次输入源，切换/读取后自动回读 | 界面首屏就能显示「显示器现在归谁」，不必先点一次按钮 |
 | 14 | — | Web 控制台只允许改白名单字段，且只监听回环地址 + 随机令牌 + Host/Origin 校验 | 一个能切换显示器、能写配置的本地端口，等价于本机代码执行入口，不能裸奔 |
 | 15 | 网络只靠 TCP 通知，没有鉴权 | 可选预共享密钥 + 每连接随机 nonce 的 HMAC 质询-响应；未通过校验前丢弃 `switch` / `switch_ack` | 方案默认「同网段即可信」：局域网里任何机器只要往 8765 发一行 JSON 就能切走显示器。密钥不上网、旧连接的校验码不能重放 |
@@ -67,6 +67,7 @@ quickswitch/
   discovery.py       可选：局域网 UDP 设备发现（peer_host = "auto"）
   webui.py           本地 Web 控制台：回环 HTTP 服务 + 令牌鉴权 + JSON API + 事件缓冲
   ui/                控制台前端（原生 HTML/CSS/JS，无构建步骤、无 CDN）
+  settings_window.py 用系统 WebView 打开设置页；窗口进程与托盘主进程分离
   requirements.txt   运行时依赖
   requirements-build.txt  打包期依赖（PyInstaller / Pillow，只在构建机安装）
   packaging/
@@ -77,7 +78,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（1.2.3.0）
+    version_info.txt        Windows exe 的版本资源（1.0.0.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   scripts/
@@ -85,7 +86,7 @@ quickswitch/
     install-task.ps1               注册 Windows 任务计划（登录自启 + 最高权限）
     com.quickswitch.agent.plist    macOS launchd 自启模板
     selftest.py                    本机链路自检（无需第二台机器/显示器）
-  tests/              128 个单元/集成测试（unittest，无第三方依赖）
+  tests/              139 个单元/集成测试（unittest，无第三方依赖）
 ```
 
 ## 4. 快速开始
@@ -122,8 +123,8 @@ brew tap deskflow/tap && brew install deskflow   # 键鼠共享
 brew install m1ddc                               # DDC/CI 切换（仅 Apple Silicon）
 
 cd quickswitch
-python3 -m pip install pystray Pillow
-python3 main.py --init-config                    # 生成配置后把 role 改成 client
+python3 -m pip install pystray Pillow pywebview
+python3 main.py --init-config                    # 生成配置；macOS 会自动写入 role=client
 python3 main.py --status                         # 自检：工具 + 对端连通性
 python3 main.py
 ```
@@ -162,6 +163,7 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到�
   "listen_port": 8765,
   "tray": true,
   "log_level": "INFO",
+  "setup": { "completed": false },
   "debounce": 0.6,
   "ddc": {
     "controlmyMonitor_path": "C:\\Tools\\ControlMyMonitor.exe",
@@ -211,6 +213,7 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到�
 | `peer_host` | 对端地址；`"auto"` = 启用局域网自动发现 |
 | `peer_port` / `listen_port` | 对端端口 / 本机监听端口（两端都用 8765 即可） |
 | `tray` | 是否显示托盘图标（也可用 `--no-tray` 临时关闭） |
+| `setup.completed` | 首次配置向导是否完成；旧配置没有该字段时自动视为已完成，避免升级后重复弹向导 |
 | `debounce` | 同一目标的重复触发间隔（秒） |
 | `ddc.display_index` | macOS 上 m1ddc 的显示器编号（`m1ddc display list` 查看） |
 | `ddc.vcp_code` | 输入源 VCP 代码，默认 `0x60`（十进制 96） |
@@ -252,7 +255,7 @@ python main.py --log-level DEBUG
 | 3 | 监听端口被占用（通常已有实例在运行） |
 | 4 | 其他启动失败 |
 
-### 6.1 Web 控制台（默认开启）
+### 6.1 设置窗口与 Web 控制台（默认开启）
 
 常驻运行时会额外起一个**只监听 `127.0.0.1`** 的本地网页，启动日志里会打印带令牌的地址：
 
@@ -260,7 +263,10 @@ python main.py --log-level DEBUG
 2026-10-16 14:12:37 [webui] INFO: Web 控制台已启动：http://127.0.0.1:8767/?t=OaftWnJt...
 ```
 
-直接点开即可（`--no-tray` 时该地址也会打到 stderr）。页面上能做的事：
+托盘菜单「打开设置窗口」会优先启动应用内 WebView，不打开浏览器标签页。
+macOS 使用系统 WKWebView，Windows 使用 WebView2；窗口由独立子进程承载，
+避免和 pystray 争抢 macOS 主线程。WebView 不可用或启动失败时才回退到默认浏览器。
+`--no-tray` 时启动地址也会打到 stderr，可直接在浏览器打开。页面上能做的事：
 
 | 区块 | 内容 |
 | --- | --- |
@@ -314,7 +320,7 @@ python3 main.py --gen-secret
 
 ```
 python3 main.py --status
-  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.3）
+  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.0）
   密钥校验     : 已通过（hmac-sha256）
 ```
 
@@ -343,11 +349,11 @@ python3 main.py --status
 
 | 平台 | 产物 | 签名方式 | 脚本 |
 | --- | --- | --- | --- |
-| Windows | `dist/QuickSwitch.exe`（**单文件**，自带 Python 运行时与 `ui/`） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` |
-| macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
+| Windows | `dist/QuickSwitch.exe`（**单文件**，自带 Python 运行时、WebView 依赖与 `ui/`） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` |
+| macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/` 与 WKWebView 桥接依赖） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.2.3`），
-spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.2.3.0`），不会两处漂移。
+两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.0.0`），
+spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.0.0.0`），不会两处漂移。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
 
@@ -375,7 +381,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-1.2.3.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-1.0.0.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -426,22 +432,25 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 
 ```bash
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-1.2.3-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-1.0.0-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=1.2.3 packaging\installer.nsi
+makensis /DVERSION=1.0.0 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后自动构建
-macOS `arm64` / `x64` 两个 DMG 和 Windows Setup，并创建 GitHub Release、上传 `SHA256SUMS.txt` 与 `INSTALL.md`。
+macOS `arm64` DMG 和 Windows Setup，并创建 GitHub Release、上传 `SHA256SUMS.txt` 与 `INSTALL.md`。
+
+macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在非 arm64 构建机上直接失败，
+DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v1.2.3
-git push origin v1.2.3
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -484,31 +493,19 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
-- **已验证**：`v1.2.3` 发布任务成功，Release 包含两个 macOS DMG、Windows Setup 与 `SHA256SUMS.txt`；
-  三个资产下载后的 SHA-256 与校验文件一致，两个 DMG 均通过 `hdiutil verify`。arm64 包内二进制实际运行返回
-  `QuickSwitch 1.2.3`，x64 包内二进制为 Mach-O x86_64，Windows 资产为有效 NSIS 安装器。
-  两个 macOS 包内的 `ui/app.js` 均包含主界面热键标记，README 徽章改为仓库内 SVG，不再依赖外部图片服务。
-- **已验证**：`v1.2.2` 发布任务成功，Release 包含两个 macOS DMG、Windows Setup 与 `SHA256SUMS.txt`；
-  三个资产校验和一致，两个 DMG 均通过 `hdiutil verify`。arm64 包内二进制实际运行返回
-  `QuickSwitch 1.2.2`，x64 包内二进制为 Mach-O x86_64，Windows 资产为有效 NSIS 安装器。
-  从 arm64 DMG 启动成品 App 后确认：macOS 风格居中窗口、半透明材质、新的切换按钮与图标均已打包进正式资产。
-- **已验证**：`v1.2.1` 的 GitHub Actions 发布任务成功，Release 包含
-  `QuickSwitch-1.2.1-macOS-arm64.dmg`、`QuickSwitch-1.2.1-macOS-x64.dmg`、
-  `QuickSwitch-Setup-1.2.1.exe` 与 `SHA256SUMS.txt`；三个资产与校验文件一致，两个 DMG 均通过
-  `hdiutil verify`。arm64 包内二进制实际运行返回 `QuickSwitch 1.2.1`，x64 包内二进制为
-  Mach-O x86_64，Windows 资产是有效的 NSIS 安装器。从 arm64 DMG 启动成品 App 后确认：
-  主页只显示两个切换按钮、设置区默认折叠、按钮提示包含连接/密钥/DDC/热键摘要，状态接口版本为 `1.2.1`。
-- **已验证**：`packaging/build-macos.sh --no-sign` 在本机真实跑通 PyInstaller 打包，产出 `QuickSwitch.app`（约 34 MB）；
-  `packaging/build-dmg.sh` 产出 `QuickSwitch-1.2.0-macOS-arm64.dmg`（约 15 MB，挂载后包含 App、Applications 快捷方式与安装说明）；
-  该 .app 的冻结二进制实测 `--version` / `--print-config` / `--status` 正常，`CFBundleShortVersionString=1.2.0`；
-  `--no-tray` 启动后 Web 控制台从包内 `ui/` 提供页面（`/` 返回 HTML、`/app.css` 200、`/api/status` 带令牌返回真实状态）；
-  `packaging/make-icons.py --check` 通过；`packaging/installer.nsi` 已用 NSIS 3.13 编译通过（占位 exe），
-  验证了安装/卸载、快捷方式、防火墙规则与注册表段落在语法层面可构建。
-- **已验证**：首次启动（配置文件不存在）会自动打开设置页，macOS 首次角色自动选为 `client`；
-  设置页显示本机局域网 IP，并可在「安全」区块编辑 `auth.secret`（128 项测试通过）。
-- **已验证**：GitHub Actions 的 Windows runner 已真实完成 PyInstaller + NSIS 构建，发布资产
-  `QuickSwitch-Setup-1.2.0.exe` 是有效的 NSIS 安装器；两个 DMG 下载后通过 `hdiutil verify`，
-  `arm64` 包内二进制为 Mach-O arm64，`x64` 包内二进制为 Mach-O x86_64，版本均为 `1.2.0`。
+> 当前发布策略：`v1.0.0` 是新的首个正式版本，macOS 安装包仅提供 Apple Silicon（arm64）。
+
+- **已验证**：首次启动自动打开四步配置向导（连接 / 安全 / 显示器 / 完成）；
+  `setup.completed` 支持旧配置迁移，已有配置不会重复弹向导。139 项测试通过，`node --check ui/app.js`
+  与 Python 编译检查通过；1120×820、780×700、浅色与深色布局已检查。
+- **已验证**：`build-macos.sh --no-sign` 产出 arm64 `.app`，`build-dmg.sh` 产出 DMG 并通过
+  `hdiutil verify`；成品 App 会拉起独立的 `--settings-window` 子进程，`/api/status` 返回真实
+  `setup.completed`、DDC 工具与输入源状态。
+- **已验证（本机 macOS）**：`m1ddc` 读取当前输入源正常；运行中的 App 实际执行
+  `Windows → 15`、`Mac → 18` 两次 DDC 切换并回读一致。macOS 自动使用 `client` 角色，
+  Windows 自动使用 `server` 角色。
+- **发布产物**：GitHub Actions 在 `v1.0.0` 标签上构建 macOS arm64 DMG、Windows Setup 与
+  `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；
   Windows 实机安装 UI、SmartScreen 与卸载流程也尚未在实体 Windows 上人工点测。

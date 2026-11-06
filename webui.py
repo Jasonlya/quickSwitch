@@ -81,6 +81,7 @@ EDITABLE: Dict[str, Any] = {
     "listen_port": None,
     "debounce": None,
     "log_level": None,
+    "setup": {"completed": None},
     "hotkeys": {"switch_to_mac": None, "switch_to_win": None},
     "network": {"ack_timeout": None, "ping_interval": None, "reconnect_interval": None,
                 "reconnect_max_interval": None, "connect_wait": None},
@@ -314,6 +315,9 @@ class WebConsole:
             "role": cfg.get("role"),
             "state": quick.state,
             "dry_run": bool(app.dry_run),
+            "setup": {
+                "completed": bool((cfg.get("setup") or {}).get("completed", False)),
+            },
             "config_path": str(app.config_file),
             "log_file": str(app.log_path),
             "listen_port": cfg.get("listen_port"),

@@ -24,9 +24,22 @@ class ConfigTests(unittest.TestCase):
         cfg = config_module.load_config()
         self.assertTrue(self.path.exists())
         self.assertEqual(cfg["role"], "server")
+        self.assertFalse(cfg["setup"]["completed"])
         self.assertEqual(cfg["ddc"]["mac_input"], 15)
         written = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(written, config_module.DEFAULTS)
+
+    def test_existing_config_without_setup_is_migrated_as_completed(self) -> None:
+        self.path.write_text(json.dumps({"role": "client"}), encoding="utf-8")
+        cfg = config_module.load_config()
+        self.assertTrue(cfg["setup"]["completed"])
+
+    def test_explicit_incomplete_setup_is_preserved(self) -> None:
+        self.path.write_text(
+            json.dumps({"role": "client", "setup": {"completed": False}}), encoding="utf-8"
+        )
+        cfg = config_module.load_config()
+        self.assertFalse(cfg["setup"]["completed"])
 
     def test_partial_override_keeps_defaults(self) -> None:
         self.path.write_text(
@@ -56,6 +69,11 @@ class ConfigTests(unittest.TestCase):
 
     def test_invalid_input_value_raises(self) -> None:
         self.path.write_text(json.dumps({"ddc": {"win_input": "hdmi1"}}), encoding="utf-8")
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
+    def test_invalid_setup_completed_raises(self) -> None:
+        self.path.write_text(json.dumps({"setup": {"completed": "yes"}}), encoding="utf-8")
         with self.assertRaises(config_module.ConfigError):
             config_module.load_config()
 

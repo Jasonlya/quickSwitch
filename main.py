@@ -44,10 +44,11 @@ from ddc import DEFAULT_INPUT_CANDIDATES, DDCSwitcher
 from discovery import DEFAULT_PORT as DISCOVERY_DEFAULT_PORT
 from discovery import PeerDiscovery
 from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
+from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "1.2.3"
+VERSION = "1.0.0"
 TARGETS = ("mac", "win")
 
 
@@ -399,6 +400,7 @@ class QuickSwitchApp:
         web_cfg = cfg.get("web") or {}
         self.web_enabled = bool(web_cfg.get("enabled", True)) if web is None else bool(web)
         self.web: Optional[WebConsole] = None
+        self.settings_window: Optional[SettingsWindow] = None
         self._input_lock = threading.Lock()
         self._input_busy = threading.Semaphore(1)
         self._input_cache: Dict[str, Any] = {
@@ -520,6 +522,10 @@ class QuickSwitchApp:
             return
         self._stopping = True
         log.info("正在退出…")
+        if self.settings_window is not None:
+            with contextlib.suppress(Exception):
+                self.settings_window.close()
+            self.settings_window = None
         if self.web is not None:
             with contextlib.suppress(Exception):
                 self.web.stop()
@@ -621,18 +627,22 @@ class QuickSwitchApp:
             self.web = None
             return
         self.web = console
+        self.settings_window = SettingsWindow(console.url)
         if not self.use_tray:
             # 无托盘时把带令牌的地址打到控制台，直接点开就能用
             print(f"Web 控制台：{console.url}", file=sys.stderr, flush=True)
-        # 首次运行（还没有配置文件）：直接把设置页面打开，用户只需填对端地址和密钥
+        # 首次配置尚未完成：直接把向导打开，用户只需按步骤确认连接和显示器。
         if self.use_tray and self.first_run:
-            log.info("首次运行：已打开设置页面，填写「对端地址」与「预共享密钥」后保存即可")
+            log.info("首次配置：已打开配置向导")
             self._open_console()
 
     def _open_console(self) -> None:
         if self.web is None:
             log.warning("Web 控制台未启动，打不开设置页面；可查看日志里的地址，或去掉 --no-web")
             return
+        if self.settings_window is not None and self.settings_window.open():
+            return
+        log.info("原生设置窗口不可用，改用系统浏览器")
         with contextlib.suppress(Exception):
             webbrowser.open(self.web.url)
 
@@ -729,13 +739,13 @@ class QuickSwitchApp:
             pystray.MenuItem("切到 Mac", self._tray_switch("mac")),
             pystray.MenuItem("切到 Windows", self._tray_switch("win")),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("打开设置页面", self._tray_open_console),
+            pystray.MenuItem("打开设置窗口", self._tray_open_console),
             pystray.MenuItem("查看状态（写入日志）", self._tray_status),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", self._tray_quit),
         )
         self.icon = pystray.Icon("QuickSwitch", tray_image(), "QuickSwitch", menu)
-        log.info("托盘图标已启动（右键菜单可切换、打开设置页面）")
+        log.info("托盘图标已启动（右键菜单可切换、打开设置窗口）")
         self.icon.run()
         self.icon = None
 
@@ -1217,6 +1227,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-tray", action="store_true", help="不显示托盘图标（后台运行）")
     parser.add_argument("--no-web", action="store_true", help="不启动本地 Web 控制台（默认 http://127.0.0.1:8767/）")
     parser.add_argument("--web-port", type=int, help="Web 控制台端口（默认取配置 web.port，8767）")
+    parser.add_argument("--settings-window", metavar="URL", help=argparse.SUPPRESS)
     parser.add_argument("--log-level", help="日志级别：DEBUG/INFO/WARNING/ERROR")
     parser.add_argument("--version", action="version", version=f"QuickSwitch {VERSION}")
     return parser
@@ -1225,6 +1236,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     attach_parent_console()
     args = build_parser().parse_args(argv)
+    if args.settings_window:
+        return run_settings_window(args.settings_window)
     if args.gen_secret:
         print(json.dumps({"auth": {"secret": secrets.token_urlsafe(32)}}, ensure_ascii=False))
         print(
@@ -1234,9 +1247,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 0
     path = config_path(args.config)
-    first_run = not path.exists()
+    new_config = not path.exists()
     try:
         cfg = load_config(args.config)
+        if new_config:
+            # 新配置直接按当前系统选对角色：Windows = server，macOS = client。
+            cfg["role"] = "client" if platform.system() == "Darwin" else "server"
+            save_config(cfg, str(path))
         if args.role:
             cfg["role"] = args.role
             validate(cfg)
@@ -1297,10 +1314,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"切换到 {LABEL[args.once]}：" + ("成功" if ok else "失败（详见上方日志）"))
         return 0 if ok else 1
 
-    if first_run:
-        # 首次常驻启动就选对角色：Windows 是 server，macOS 是 client。
-        cfg["role"] = "client" if platform.system() == "Darwin" else "server"
-        save_config(cfg, str(path))
+    first_run = not bool((cfg.get("setup") or {}).get("completed", True))
 
     app = QuickSwitchApp(
         cfg,

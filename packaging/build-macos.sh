@@ -71,6 +71,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+if [ "$(uname -m)" != "arm64" ]; then
+    die "QuickSwitch macOS 版只支持 Apple Silicon（arm64），请在 arm64 Mac 上构建"
+fi
+
 APP_PATH="${DIST_DIR}/QuickSwitch.app"
 EXECUTABLE="${APP_PATH}/Contents/MacOS/QuickSwitch"
 

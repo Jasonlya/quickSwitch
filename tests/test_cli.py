@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -83,7 +84,10 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(target.exists())
-        self.assertEqual(json.loads(target.read_text(encoding="utf-8"))["role"], "server")
+        generated = json.loads(target.read_text(encoding="utf-8"))
+        expected_role = "client" if platform.system() == "Darwin" else "server"
+        self.assertEqual(generated["role"], expected_role)
+        self.assertFalse(generated["setup"]["completed"])
 
     def test_once_dry_run_succeeds(self) -> None:
         result = self.run_cli("--once", "mac", "--dry-run")

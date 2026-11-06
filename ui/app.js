@@ -70,6 +70,484 @@ async function api(path, options) {
   return payload;
 }
 
+/* ---------------------------------------------------------------- 配置向导 */
+const SETUP_STEP_COUNT = 4;
+
+const setupState = {
+  open: false,
+  step: 0,
+  maxVisited: 0,
+  busy: false,
+  completed: false,
+  persistedCompleted: false,
+  currentInput: null,
+};
+
+function setupRoleFor(status) {
+  const platformName = String((status && status.host && status.host.platform) || "").toLowerCase();
+  if (platformName === "darwin" || platformName === "macos" || platformName === "mac") return "client";
+  if (platformName === "windows" || platformName === "win") return "server";
+  return (status && status.role) || "server";
+}
+
+function setupRoleText(role) {
+  return role === "client" ? "client · macOS 侧" : "server · Windows 侧";
+}
+
+function setupRoleExplanation(role, platformName) {
+  if (role === "client") return "macOS 自动使用 client";
+  if (role === "server") return "Windows 自动使用 server";
+  return "当前系统自动使用 " + text(role) + "（" + text(platformName) + "）";
+}
+
+function setSetupMessage(id, message, tone) {
+  const node = $(id);
+  node.textContent = message || "";
+  if (tone) node.dataset.tone = tone;
+  else delete node.dataset.tone;
+}
+
+function setupPeerMode() {
+  const checked = document.querySelector('input[name="setupPeerMode"]:checked');
+  return checked ? checked.value : "auto";
+}
+
+function syncSetupDevice(status) {
+  const role = setupRoleFor(status);
+  const platformName = text(status.host && status.host.platform);
+  const ips = (status.host && status.host.ips) || [];
+  const ipText = ips.length ? ips.join(" / ") : DASH;
+  $("setupHostName").textContent = text(status.host && status.host.name);
+  $("setupRoleLabel").textContent = setupRoleText(role);
+  $("setupLocalIps").textContent = ipText;
+  $("setupFactHost").textContent = text(status.host && status.host.name);
+  $("setupFactRole").textContent = setupRoleExplanation(role, platformName);
+  $("setupFactIps").textContent = ipText;
+}
+
+function renderSetupTool(status) {
+  const ddc = (status && status.ddc) || {};
+  const available = Boolean(ddc.tool_ok);
+  $("setupToolDot").dataset.on = available ? "true" : "error";
+  $("setupToolTitle").textContent = available ? "DDC 工具可用" : "DDC 工具不可用";
+  $("setupToolDetail").textContent = text(ddc.tool_detail) + (ddc.tool_path ? " ｜ " + ddc.tool_path : "");
+}
+
+function renderSetupCurrent(value, meta) {
+  setupState.currentInput = value === null || value === undefined ? null : Number(value);
+  $("setupCurrentValue").textContent = setupState.currentInput === null ? DASH : String(setupState.currentInput);
+  $("setupCurrentMeta").textContent = meta || (setupState.currentInput === null ? "尚未读取" : "未标记归属");
+  updateSetupControls();
+}
+
+function syncSetupFromStatus(status) {
+  if (!setupState.open || !status) return;
+  syncSetupDevice(status);
+  renderSetupTool(status);
+  const input = status.input || {};
+  if (!setupState.busy && input.value !== null && input.value !== undefined) {
+    const when = input.read_at ? "上次读取 " + clock(input.read_at) : "从运行状态读取";
+    renderSetupCurrent(input.value, when);
+  }
+}
+
+function updateSetupControls() {
+  const completed = setupState.completed;
+  for (const button of document.querySelectorAll("#setupSteps .setup-step")) {
+    const index = Number(button.dataset.step);
+    button.disabled = setupState.busy || index > setupState.maxVisited || (completed && index !== 3);
+  }
+  const hasCurrent = setupState.currentInput !== null && setupState.currentInput !== undefined;
+  $("setupReadInput").disabled = setupState.busy;
+  $("setupProbeInputs").disabled = setupState.busy;
+  $("setupAssignMac").disabled = setupState.busy || !hasCurrent;
+  $("setupAssignWin").disabled = setupState.busy || !hasCurrent;
+  $("setupBack").disabled = setupState.busy;
+  $("setupNext").disabled = setupState.busy;
+}
+
+function setSetupBusy(on) {
+  setupState.busy = Boolean(on);
+  updateSetupControls();
+}
+
+function goToSetupStep(index) {
+  if (setupState.busy) return;
+  const next = Math.max(0, Math.min(SETUP_STEP_COUNT - 1, Number(index) || 0));
+  setupState.step = next;
+  setupState.maxVisited = Math.max(setupState.maxVisited, next);
+
+  document.querySelectorAll("#setupOverlay .setup-panel").forEach((panel) => {
+    panel.hidden = Number(panel.dataset.panel) !== next;
+  });
+  document.querySelectorAll("#setupSteps .setup-step").forEach((button) => {
+    const step = Number(button.dataset.step);
+    if (step === next) button.setAttribute("aria-current", "step");
+    else button.removeAttribute("aria-current");
+    button.dataset.state = step < setupState.maxVisited ? "done" : "todo";
+  });
+
+  $("setupProgress").textContent = String(next + 1).padStart(2, "0") + " / " +
+    String(SETUP_STEP_COUNT).padStart(2, "0");
+  $("setupBack").hidden = next === 0 || setupState.completed;
+  $("setupNext").textContent = setupState.completed
+    ? "关闭设置窗口"
+    : (next === SETUP_STEP_COUNT - 1 ? "完成配置" : "继续");
+  setSetupMessage("setupStepState", "");
+
+  const activePanel = document.querySelector('#setupOverlay .setup-panel[data-panel="' + next + '"]');
+  const title = activePanel && activePanel.querySelector("h2");
+  if (title) {
+    title.tabIndex = -1;
+    document.querySelector("#setupOverlay .setup-dialog").setAttribute("aria-labelledby", title.id);
+  }
+  const scroll = document.querySelector("#setupOverlay .setup-scroll");
+  if (scroll) scroll.scrollTop = 0;
+  if (next === 3) renderSetupReview();
+  updateSetupControls();
+  if (title) requestAnimationFrame(() => title.focus({ preventScroll: true }));
+}
+
+function renderSetupReview() {
+  const mode = setupPeerMode();
+  const peer = mode === "auto"
+    ? "自动发现（UDP " + text((configBase.discovery || {}).port) + "）"
+    : ($("setupPeerHost").value.trim() || "尚未填写");
+  const secret = $("setupSecret").value.trim();
+  const macValue = $("setupMacInput").value.trim();
+  const winValue = $("setupWinInput").value.trim();
+  rows($("setupReview"), [
+    ["本机角色", setupRoleText(setupRoleFor(lastStatus))],
+    ["连接方式", peer],
+    ["预共享密钥", secret ? "已设置（" + secret.length + " 个字符）" : "未设置"],
+    ["Mac 输入源", macValue || DASH],
+    ["Windows 输入源", winValue || DASH],
+    ["DDC 工具", lastStatus && lastStatus.ddc && lastStatus.ddc.tool_ok ? "可用" : "不可用"],
+  ]);
+  $("setupSecretWarning").hidden = Boolean(secret);
+}
+
+function openSetupWizard() {
+  if (!lastStatus || !configBase) {
+    notify("运行状态或配置尚未读取完成，暂时无法打开配置向导。", "error");
+    return;
+  }
+  const cfg = configBase;
+  const peer = String(cfg.peer_host || "").trim();
+  const firstRun = !(lastStatus.setup && lastStatus.setup.completed);
+  const auto = firstRun || peer.toLowerCase() === "auto" ||
+    Boolean((cfg.discovery || {}).enabled);
+
+  setupState.open = true;
+  setupState.step = 0;
+  setupState.maxVisited = 0;
+  setupState.busy = false;
+  setupState.completed = false;
+  setupState.persistedCompleted = Boolean(lastStatus.setup && lastStatus.setup.completed);
+  setupState.currentInput = null;
+
+  document.querySelector('input[name="setupPeerMode"][value="' + (auto ? "auto" : "manual") + '"]').checked = true;
+  syncSetupChoices();
+  $("setupPeerHost").value = peer && peer.toLowerCase() !== "auto" ? peer : "";
+  $("setupManualField").hidden = auto;
+  $("setupSecret").value = String((cfg.auth || {}).secret || "");
+  $("setupSecret").type = "password";
+  $("setupToggleSecret").textContent = "显示";
+  $("setupMacInput").value = text((cfg.ddc || {}).mac_input) === DASH ? "" : String(cfg.ddc.mac_input);
+  $("setupWinInput").value = text((cfg.ddc || {}).win_input) === DASH ? "" : String(cfg.ddc.win_input);
+  $("setupDdcState").textContent = "";
+  delete $("setupDdcState").dataset.tone;
+  $("setupFinishState").textContent = "";
+  delete $("setupFinishState").dataset.tone;
+  $("setupSecretWarning").hidden = true;
+
+  syncSetupDevice(lastStatus);
+  renderSetupTool(lastStatus);
+  const input = lastStatus.input || {};
+  const inputMeta = input.value === null || input.value === undefined
+    ? (input.error || "尚未读取")
+    : (input.read_at ? "上次读取 " + clock(input.read_at) : "从运行状态读取");
+  renderSetupCurrent(input.value, inputMeta);
+  updateSecretState();
+
+  $("setupOverlay").hidden = false;
+  document.body.dataset.setupOpen = "true";
+  goToSetupStep(0);
+}
+
+function closeSetupWizard() {
+  if (setupState.busy) return;
+  const wasCompleted = setupState.completed;
+  setupState.open = false;
+  $("setupOverlay").hidden = true;
+  delete document.body.dataset.setupOpen;
+  if (!wasCompleted && !setupState.persistedCompleted) {
+    notify("配置尚未完成，下次启动 QuickSwitch 时会再次打开向导。", "info");
+  }
+}
+
+function validateSetupStep(index) {
+  setSetupMessage("setupStepState", "");
+  if (index === 0 && setupPeerMode() === "manual") {
+    const host = $("setupPeerHost").value.trim();
+    if (!host) {
+      setSetupMessage("setupStepState", "请填写另一台电脑的 IP 或主机名，或改用自动发现。", "error");
+      $("setupPeerHost").focus();
+      return false;
+    }
+  }
+  if (index === 2) {
+    const mac = Number($("setupMacInput").value);
+    const win = Number($("setupWinInput").value);
+    if (!Number.isInteger(mac) || mac < 0 || mac > 255 ||
+        !Number.isInteger(win) || win < 0 || win > 255) {
+      setSetupMessage("setupStepState", "Mac 与 Windows 输入源都必须是 0–255 的整数。", "error");
+      return false;
+    }
+    if (mac === win) {
+      setSetupMessage("setupStepState", "Mac 与 Windows 输入源不能相同，否则切换后画面不会变化。", "error");
+      return false;
+    }
+  }
+  return true;
+}
+
+function updateSetupPeerMode() {
+  const manual = setupPeerMode() === "manual";
+  syncSetupChoices();
+  $("setupManualField").hidden = !manual;
+  if (manual) $("setupPeerHost").focus();
+}
+
+function syncSetupChoices() {
+  document.querySelectorAll("#setupOverlay .setup-choice").forEach((choice) => {
+    const input = choice.querySelector('input[type="radio"]');
+    choice.dataset.selected = input && input.checked ? "true" : "false";
+  });
+}
+
+function updateSecretState() {
+  const value = $("setupSecret").value.trim();
+  const state = $("setupSecretState");
+  if (!value) {
+    state.textContent = "尚未设置密钥。可以生成后复制到另一台电脑。";
+    state.dataset.tone = "error";
+  } else if (value.length < 16) {
+    state.textContent = "当前只有 " + value.length + " 个字符；建议至少 16 个，或直接点「生成」。";
+    state.dataset.tone = "error";
+  } else {
+    state.textContent = "已填写 " + value.length + " 个字符。请把同一个值填到另一台电脑。";
+    state.dataset.tone = "ok";
+  }
+}
+
+function generateSetupSecret() {
+  if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
+    notify("当前窗口无法安全生成随机密钥，请使用命令行 --gen-secret。", "error");
+    return;
+  }
+  const bytes = new Uint8Array(32);
+  window.crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const secret = window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  $("setupSecret").value = secret;
+  $("setupSecret").type = "text";
+  $("setupToggleSecret").textContent = "隐藏";
+  updateSecretState();
+  $("setupSecret").focus();
+  $("setupSecret").select();
+}
+
+async function copyText(value) {
+  if (!value) return false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (error) {
+    /* WebView 未授予剪贴板权限时走下面的兼容路径 */
+  }
+  const field = document.createElement("textarea");
+  field.value = value;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.opacity = "0";
+  document.body.appendChild(field);
+  field.select();
+  let copied = false;
+  try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+  field.remove();
+  return copied;
+}
+
+async function copySetupSecret() {
+  const value = $("setupSecret").value.trim();
+  if (!value) {
+    notify("密钥为空，请先生成。", "error");
+    return;
+  }
+  const copied = await copyText(value);
+  notify(copied ? "密钥已复制，请粘贴到另一台电脑的同一位置。" : "复制失败，请手动选中密钥复制。", copied ? "info" : "error");
+}
+
+async function readSetupInput() {
+  if (setupState.busy) return;
+  setSetupBusy(true);
+  setSetupMessage("setupDdcState", "读取中：正在执行 DDC 回读 …");
+  try {
+    const result = await api("/api/read-input", { method: "POST", body: {} });
+    if (result.value === null || result.value === undefined) {
+      renderSetupCurrent(null, "工具不支持回读，或显示器没有响应");
+      setSetupMessage("setupDdcState", "读取不到当前输入源；可直接填写已知的输入源数值。", "error");
+    } else {
+      renderSetupCurrent(result.value, "刚刚读取 · " + (result.target ? LABEL[result.target] + " 当前配置值" : "尚未标记归属"));
+      setSetupMessage("setupDdcState", "已读到当前输入源 " + result.value + "，请选择它属于 Mac 还是 Windows。", "ok");
+    }
+  } catch (error) {
+    setSetupMessage("setupDdcState", "读取失败：" + error.message, "error");
+  } finally {
+    setSetupBusy(false);
+  }
+  await refreshStatus();
+}
+
+async function probeSetupInputs() {
+  if (setupState.busy) return;
+  const started = Date.now();
+  setSetupBusy(true);
+  setSetupMessage("setupDdcState", "探测中：显示器会短暂切换几次 …");
+  const ticker = setInterval(() => {
+    if (!setupState.busy) return;
+    setSetupMessage("setupDdcState", "探测中：已用 " + Math.round((Date.now() - started) / 1000) + " 秒，请等显示器稳定 …");
+  }, 1000);
+  try {
+    const result = await api("/api/probe-inputs", { method: "POST", body: {} });
+    const found = result.available || [];
+    setSetupMessage("setupDdcState", found.length
+      ? "显示器接受这些取值：" + found.join("、") + "。可读取当前值或手动填写。"
+      : "没有探测到可用取值。请确认显示器已开启 DDC/CI，或手动填写已知值。",
+      found.length ? "ok" : "error");
+  } catch (error) {
+    setSetupMessage("setupDdcState", "探测失败：" + error.message, "error");
+  } finally {
+    clearInterval(ticker);
+    setSetupBusy(false);
+  }
+  await refreshStatus();
+}
+
+function assignSetupInput(target) {
+  if (setupState.currentInput === null || setupState.currentInput === undefined) return;
+  const field = target === "mac" ? $("setupMacInput") : $("setupWinInput");
+  field.value = String(setupState.currentInput);
+  setSetupMessage("setupDdcState", "已把当前值 " + setupState.currentInput + " 标记为 " + LABEL[target] + " 输入源。", "ok");
+}
+
+async function finishSetup() {
+  if (!validateSetupStep(0)) {
+    goToSetupStep(0);
+    return;
+  }
+  if (!validateSetupStep(2)) {
+    goToSetupStep(2);
+    return;
+  }
+  const mode = setupPeerMode();
+  const peerHost = mode === "auto" ? "auto" : $("setupPeerHost").value.trim();
+  const values = {
+    role: setupRoleFor(lastStatus),
+    peer_host: peerHost,
+    discovery: { enabled: mode === "auto" },
+    auth: { secret: $("setupSecret").value.trim() },
+    ddc: {
+      mac_input: Number($("setupMacInput").value),
+      win_input: Number($("setupWinInput").value),
+    },
+    setup: { completed: true },
+  };
+
+  setSetupBusy(true);
+  setSetupMessage("setupFinishState", "保存中 …");
+  try {
+    const result = await api("/api/config", { method: "POST", body: { values } });
+    setupState.completed = true;
+    setupState.maxVisited = SETUP_STEP_COUNT - 1;
+    renderConfig({ values: result.values, restart_prefixes: restartPrefixes });
+    await refreshStatus();
+    renderSetupReview();
+
+    let message = "配置已保存。";
+    if (result.restart_required) {
+      message += " 需要重启生效：" + result.restart_keys.join("、") + "。";
+    }
+    setSetupMessage("setupFinishState", message, "ok");
+    $("setupFinishNote").querySelector("strong").textContent = "下一步";
+    $("setupFinishNote").querySelector("span").textContent =
+      "关闭设置窗口，从菜单栏或托盘菜单选择「退出」，再重新打开 QuickSwitch。";
+    $("setupBack").hidden = true;
+    $("setupNext").textContent = "关闭设置窗口";
+    $("setupNext").disabled = false;
+    notify("配置已保存。" + (result.restart_required ? " 请重启 QuickSwitch 使连接配置生效。" : ""), "info");
+  } catch (error) {
+    setSetupMessage("setupFinishState", "保存失败：" + error.message, "error");
+  } finally {
+    setSetupBusy(false);
+    updateSetupControls();
+  }
+}
+
+async function handleSetupNext() {
+  if (setupState.completed) {
+    closeSetupWizard();
+    window.setTimeout(() => {
+      window.close();
+      window.setTimeout(() => {
+        if (!window.closed) notify("配置已保存，可以直接关闭这个设置窗口。", "info");
+      }, 300);
+    }, 60);
+    return;
+  }
+  if (!validateSetupStep(setupState.step)) return;
+  if (setupState.step < SETUP_STEP_COUNT - 1) {
+    goToSetupStep(setupState.step + 1);
+    return;
+  }
+  await finishSetup();
+}
+
+function bindSetupWizard() {
+  $("btnSetupWizard").addEventListener("click", openSetupWizard);
+  $("setupClose").addEventListener("click", closeSetupWizard);
+  $("setupBack").addEventListener("click", () => goToSetupStep(setupState.step - 1));
+  $("setupNext").addEventListener("click", handleSetupNext);
+  $("setupSteps").addEventListener("click", (event) => {
+    const button = event.target.closest(".setup-step");
+    if (!button || button.disabled) return;
+    goToSetupStep(Number(button.dataset.step));
+  });
+  document.querySelectorAll('input[name="setupPeerMode"]').forEach((input) => {
+    input.addEventListener("change", updateSetupPeerMode);
+  });
+  $("setupSecret").addEventListener("input", updateSecretState);
+  $("setupToggleSecret").addEventListener("click", () => {
+    const secret = $("setupSecret");
+    const showing = secret.type === "text";
+    secret.type = showing ? "password" : "text";
+    $("setupToggleSecret").textContent = showing ? "显示" : "隐藏";
+  });
+  $("setupGenerateSecret").addEventListener("click", generateSetupSecret);
+  $("setupCopySecret").addEventListener("click", copySetupSecret);
+  $("setupReadInput").addEventListener("click", readSetupInput);
+  $("setupProbeInputs").addEventListener("click", probeSetupInputs);
+  $("setupAssignMac").addEventListener("click", () => assignSetupInput("mac"));
+  $("setupAssignWin").addEventListener("click", () => assignSetupInput("win"));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && setupState.open && !setupState.busy) closeSetupWizard();
+  });
+}
+
 /* ---------------------------------------------------------------- 状态渲染 */
 function rows(target, entries) {
   target.textContent = "";
@@ -275,6 +753,7 @@ function renderStatus(status) {
 
   $("probeDefault").textContent = (status.probe_candidates || []).join(", ") || DASH;
   renderOwnership(status);
+  syncSetupFromStatus(status);
 }
 
 /* ---------------------------------------------------------------- 操作 */
@@ -599,8 +1078,10 @@ async function refreshStatus() {
     renderStatus(status);
     $("footerState").textContent = "最近一次采样 " + clock(status.generated_at) +
       " ｜ 主机 " + text(status.host.name) + " ｜ 角色 " + text(status.role);
+    return status;
   } catch (error) {
     $("footerState").textContent = "状态读取失败：" + error.message;
+    return null;
   }
 }
 
@@ -615,14 +1096,19 @@ async function bootstrap() {
   $("btnProbe").addEventListener("click", probeInputs);
   $("btnSave").addEventListener("click", saveConfig);
   $("btnRevert").addEventListener("click", () => api("/api/config").then(renderConfig));
+  bindSetupWizard();
 
-  await refreshStatus();
+  const initialStatus = await refreshStatus();
   try {
     renderConfig(await api("/api/config"));
   } catch (error) {
     $("configState").textContent = "配置读取失败：" + error.message;
   }
   await refreshEvents();
+
+  if (initialStatus && !(initialStatus.setup && initialStatus.setup.completed)) {
+    openSetupWizard();
+  }
 
   setInterval(() => { if (!document.hidden) refreshStatus(); }, 2000);
   setInterval(() => { if (!document.hidden) refreshEvents(); }, 3000);

@@ -191,6 +191,7 @@
       <div class="controls">
         <button type="button" class="action" id="btnSave">保存配置</button>
         <button type="button" class="action action-quiet" id="btnRevert">放弃修改</button>
+        <button type="button" class="action action-quiet" id="btnSetupWizard">重新运行配置向导</button>
       </div>
       <p class="run-state" id="configState"></p>
     </div>
@@ -220,6 +221,194 @@
     </div>
   </details>
 
+</div>
+
+<div class="setup-overlay" id="setupOverlay" hidden>
+  <section class="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setupTitleConnect">
+    <aside class="setup-aside">
+      <div class="setup-brand">
+        <span class="setup-brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="13" rx="2.4"></rect>
+            <path d="M8 21h8M12 17v4"></path>
+          </svg>
+        </span>
+        <span>
+          <strong>QuickSwitch</strong>
+          <small>配置向导</small>
+        </span>
+      </div>
+
+      <nav class="setup-steps" id="setupSteps" aria-label="配置步骤">
+        <button type="button" class="setup-step" data-step="0" aria-current="step">
+          <span class="setup-step-index num">01</span>
+          <span class="setup-step-copy"><span>连接</span><small>找到另一台电脑</small></span>
+        </button>
+        <button type="button" class="setup-step" data-step="1">
+          <span class="setup-step-index num">02</span>
+          <span class="setup-step-copy"><span>安全</span><small>确认两端密钥</small></span>
+        </button>
+        <button type="button" class="setup-step" data-step="2">
+          <span class="setup-step-index num">03</span>
+          <span class="setup-step-copy"><span>显示器</span><small>标记输入源</small></span>
+        </button>
+        <button type="button" class="setup-step" data-step="3">
+          <span class="setup-step-index num">04</span>
+          <span class="setup-step-copy"><span>完成</span><small>保存并重启</small></span>
+        </button>
+      </nav>
+
+      <div class="setup-device">
+        <span class="setup-device-label">本机</span>
+        <strong id="setupHostName">—</strong>
+        <span id="setupRoleLabel">—</span>
+        <span class="num" id="setupLocalIps">—</span>
+      </div>
+    </aside>
+
+    <div class="setup-main">
+      <header class="setup-top">
+        <span class="setup-progress num" id="setupProgress">01 / 04</span>
+        <button type="button" class="setup-close" id="setupClose" aria-label="关闭配置向导">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+            <path d="m6 6 12 12M18 6 6 18"></path>
+          </svg>
+        </button>
+      </header>
+
+      <div class="setup-scroll">
+        <section class="setup-panel" data-panel="0">
+          <p class="setup-eyebrow">连接</p>
+          <h2 id="setupTitleConnect">让两台电脑找到彼此</h2>
+          <p class="setup-lead">角色会按当前系统自动选择。两台电脑需要在同一局域网，监听端口保持 <span class="num">8765</span>。</p>
+
+          <dl class="setup-facts">
+            <div><dt>本机</dt><dd id="setupFactHost">—</dd></div>
+            <div><dt>角色</dt><dd id="setupFactRole">—</dd></div>
+            <div><dt>本机 IP</dt><dd class="num" id="setupFactIps">—</dd></div>
+          </dl>
+
+          <fieldset class="setup-choice-group">
+            <legend>另一台电脑怎么找到本机？</legend>
+            <label class="setup-choice">
+              <input type="radio" name="setupPeerMode" value="auto" checked>
+              <span class="setup-choice-body">
+                <strong>自动发现 <em>推荐</em></strong>
+                <span>同一局域网内自动寻找，不需要手动输入 IP。</span>
+              </span>
+            </label>
+            <label class="setup-choice">
+              <input type="radio" name="setupPeerMode" value="manual">
+              <span class="setup-choice-body">
+                <strong>手动填写 IP</strong>
+                <span>网络隔离、自动发现被拦截，或使用固定虚拟 IP 时选择。</span>
+              </span>
+            </label>
+          </fieldset>
+
+          <div class="setup-field" id="setupManualField" hidden>
+            <label for="setupPeerHost">另一台电脑的 IP 或主机名</label>
+            <input type="text" id="setupPeerHost" autocomplete="off" spellcheck="false" placeholder="例如 192.168.1.100">
+            <p>在另一台电脑的配置向导左侧「本机 IP」里可以看到它。</p>
+          </div>
+        </section>
+
+        <section class="setup-panel" data-panel="1" hidden>
+          <p class="setup-eyebrow">安全</p>
+          <h2 id="setupTitleSecurity">让两端使用同一把密钥</h2>
+          <p class="setup-lead">密钥用于确认切换请求来自你自己的另一台电脑。两端必须填写完全相同的值。</p>
+
+          <div class="setup-field setup-secret-field">
+            <label for="setupSecret">预共享密钥</label>
+            <div class="setup-secret-row">
+              <input type="password" id="setupSecret" autocomplete="new-password" spellcheck="false" placeholder="至少 16 个字符">
+              <button type="button" class="setup-mini-button" id="setupToggleSecret">显示</button>
+              <button type="button" class="setup-mini-button" id="setupCopySecret">复制</button>
+              <button type="button" class="setup-mini-button" id="setupGenerateSecret">生成</button>
+            </div>
+            <p id="setupSecretState" role="status">尚未设置密钥。可以生成后复制到另一台电脑。</p>
+          </div>
+
+          <div class="setup-note">
+            <strong>暂时跳过会降低安全性。</strong>
+            <span>密钥为空时，同一局域网内能连接 <span class="num">8765</span> 端口的程序都可以请求切换显示器。</span>
+          </div>
+        </section>
+
+        <section class="setup-panel" data-panel="2" hidden>
+          <p class="setup-eyebrow">显示器</p>
+          <h2 id="setupTitleDisplay">确认显示器的输入源取值</h2>
+          <p class="setup-lead">不同品牌的取值可能不同。读取当前值，再把它标记为当前电脑对应的输入源。</p>
+
+          <div class="setup-tool" id="setupTool">
+            <span class="setup-tool-dot" id="setupToolDot" data-on="false" aria-hidden="true"></span>
+            <span class="setup-tool-copy">
+              <strong id="setupToolTitle">正在检查 DDC 工具</strong>
+              <span id="setupToolDetail">—</span>
+            </span>
+          </div>
+
+          <div class="setup-current">
+            <div class="setup-current-copy">
+              <span>当前输入源</span>
+              <strong class="num" id="setupCurrentValue">—</strong>
+              <span id="setupCurrentMeta">尚未读取</span>
+            </div>
+            <div class="setup-actions">
+              <button type="button" class="setup-mini-button" id="setupReadInput">读取</button>
+              <button type="button" class="setup-mini-button" id="setupProbeInputs">探测</button>
+            </div>
+          </div>
+
+          <div class="setup-assign">
+            <span>把读到的当前值标记为</span>
+            <button type="button" class="setup-mini-button" id="setupAssignMac" disabled>Mac 输入源</button>
+            <button type="button" class="setup-mini-button" id="setupAssignWin" disabled>Windows 输入源</button>
+          </div>
+
+          <div class="setup-input-grid">
+            <label class="setup-number-field" for="setupMacInput">
+              <span>Mac 输入源</span>
+              <input type="number" id="setupMacInput" min="0" max="255" step="1" inputmode="numeric">
+              <small>常见值：DP1 = 15，USB-C = 27</small>
+            </label>
+            <label class="setup-number-field" for="setupWinInput">
+              <span>Windows 输入源</span>
+              <input type="number" id="setupWinInput" min="0" max="255" step="1" inputmode="numeric">
+              <small>常见值：HDMI1 = 17，HDMI2 = 18</small>
+            </label>
+          </div>
+
+          <p class="setup-inline-state" id="setupDdcState" role="status"></p>
+        </section>
+
+        <section class="setup-panel" data-panel="3" hidden>
+          <p class="setup-eyebrow">完成</p>
+          <h2 id="setupTitleDone">检查配置，然后完成</h2>
+          <p class="setup-lead">保存后，连接方式、角色和密钥需要退出 QuickSwitch 再重新打开才会生效。</p>
+
+          <dl class="setup-review" id="setupReview"></dl>
+          <div class="setup-note" id="setupSecretWarning" hidden>
+            <strong>尚未设置预共享密钥。</strong>
+            <span>可以完成配置，但同一局域网内的其他程序可能向 QuickSwitch 发送切换请求。</span>
+          </div>
+          <div class="setup-finish-note" id="setupFinishNote">
+            <strong>下一步</strong>
+            <span>完成配置后关闭设置窗口，从菜单栏或托盘菜单选择「退出」，再重新打开 QuickSwitch。</span>
+          </div>
+          <p class="setup-inline-state" id="setupFinishState" role="status"></p>
+        </section>
+      </div>
+
+      <footer class="setup-footer">
+        <p class="setup-inline-state" id="setupStepState" role="status"></p>
+        <div class="setup-footer-actions">
+          <button type="button" class="setup-button setup-button-quiet" id="setupBack">上一步</button>
+          <button type="button" class="setup-button setup-button-primary" id="setupNext">继续</button>
+        </div>
+      </footer>
+    </div>
+  </section>
 </div>
 <script src="app.js"></script>
 </body>

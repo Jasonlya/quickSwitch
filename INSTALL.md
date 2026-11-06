@@ -44,15 +44,13 @@
 ## 2. 安装
 
 推荐直接从 [GitHub Releases](https://github.com/Jasonlya/quickswitch/releases/latest) 下载安装包。
-安装包自带 Python 运行时、托盘依赖和网页设置页，目标机不需要安装 Python 或 pip。
+安装包自带 Python 运行时、托盘依赖和设置窗口，目标机不需要安装 Python 或 pip。
 
 ### 2.1 macOS（推荐安装包）
 
-下载时按芯片选择：
+QuickSwitch macOS 版只支持 Apple Silicon（M1/M2/M3/M4），不再提供 Intel Mac 安装包。
 
-- Apple 芯片（M1/M2/M3/M4）：`QuickSwitch-1.2.3-macOS-arm64.dmg`
-- Intel 芯片：`QuickSwitch-1.2.3-macOS-x64.dmg`
-- 不确定时，在终端运行 `uname -m`：`arm64` 选 arm64，`x86_64` 选 x64。
+在终端运行 `uname -m` 应显示 `arm64`。下载最新 Release 里的 `QuickSwitch-*-macOS-arm64.dmg`。
 
 安装步骤：
 
@@ -61,7 +59,7 @@
    当前 Release 未签名 / 未公证；如果系统仍拦截，可到「系统设置 → 隐私与安全性」点「仍要打开」。
 3. 首次启动可能弹「允许 QuickSwitch 查找并连接到本地网络上的设备」→ 点**允许**；
    拒绝的话对端通知发不出去（本机切换仍可用）。
-4. 菜单栏出现 QuickSwitch 图标 = 启动成功，首次运行会自动打开设置页面。程序不进 Dock，属于正常的菜单栏程序。
+4. 菜单栏出现 QuickSwitch 图标 = 启动成功，首次运行会自动弹出配置向导。程序不进 Dock，属于正常的菜单栏程序。
 
 命令行自检：
 
@@ -71,10 +69,10 @@
 
 ### 2.2 Windows（推荐安装包）
 
-1. 下载并双击 `QuickSwitch-Setup-1.2.3.exe`，在 UAC 提示中点「是」。
+1. 下载并双击最新 Release 里的 `QuickSwitch-Setup-*.exe`，在 UAC 提示中点「是」。
 2. 未签名版本首次运行可能弹 SmartScreen：点「更多信息」→「仍要运行」。
 3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765，并写入卸载入口。
-4. 从桌面或开始菜单启动 QuickSwitch；首次运行会自动打开设置页面。
+4. 从桌面或开始菜单启动 QuickSwitch；首次运行会自动弹出配置向导。
 5. Windows 全局热键需要管理员权限，快捷方式已设置为以管理员身份运行；每次启动出现 UAC 时点「是」即可。
 
 命令行自检：
@@ -104,12 +102,12 @@ Windows 可以直接双击 `scripts\quickstart-windows.bat`（保留控制台日
 
 ### 3.1 第一次启动
 
-安装包首次启动时会自动打开设置页面，并在下面位置生成配置：
+安装包首次启动时会自动弹出**配置向导**，并在下面位置生成配置：
 
 - macOS：`~/.quickswitch/config.json`
 - Windows：`%USERPROFILE%\.quickswitch\config.json`
 
-如果没有自动打开：右键菜单栏 / 托盘图标 →「打开设置页面」。
+如果没有自动打开：右键菜单栏 / 托盘图标 →「打开设置窗口」。向导会停在最后一个完成步骤，或在下次启动时重新打开。
 
 也可以手动生成或查看配置文件：
 
@@ -124,30 +122,34 @@ Windows 可以直接双击 `scripts\quickstart-windows.bat`（保留控制台日
 python main.py --init-config
 ```
 
-也可以直接在网页控制台点「更多信息与设置」→「配置」区块里改（只允许改白名单字段），省得手动编辑 JSON。
+也可以直接在设置窗口点「更多信息与设置」→「配置」区块里改（只允许改白名单字段），省得手动编辑 JSON。
 
-### 3.2 先填这三项
+### 3.2 按向导完成四步
 
-| 字段 | 例子 | 说明 |
+| 步骤 | 要做什么 | 说明 |
 | --- | --- | --- |
-| `peer_host` | 对端局域网 IP，如 `192.168.1.101` | 也可设 `"auto"` 开局域网自动发现 |
-| `role` | Windows 填 `server`，macOS 填 `client` | 首次常驻启动会按系统自动选好；只有 `server` 注册全局热键 |
-| `auth.secret` | 两端填同一个 16 位以上的随机字符串 | 在「更多信息与设置 → 配置 → 安全」区块填写；两端必须一致，保存后重启 |
-| `listen_port` / `peer_port` | 两端都用 `8765` | 两边必须一致，且防火墙要放行 |
+| 连接 | 选「自动发现」，或填另一台电脑的 IP | 自动发现使用 UDP 8766；手动模式把另一台电脑的「本机 IP」填进来。TCP 监听端口保持 `8765` |
+| 安全 | 生成密钥，并复制到另一台电脑 | 两端 `auth.secret` 必须完全相同；建议 16 位以上 |
+| 显示器 | 读取当前输入源并标记 Mac / Windows | 不同品牌取值可能不同；也可以直接填写或点「探测」 |
+| 完成 | 保存后退出并重新打开 QuickSwitch | 角色会按系统自动选择：macOS = `client`，Windows = `server`，只有 Windows 端注册全局热键 |
 
-设置页「连接」区块会显示本机局域网 IP；把它填到**另一台电脑**的「对端地址」里。
-DDC 路径和输入源取值如果默认值不匹配，再按 3.3 调整。
+向导左侧会显示本机局域网 IP；把它填到**另一台电脑**的连接步骤里。
+完成后要退出并重新打开 QuickSwitch，连接方式、角色和密钥才会生效。
 
-Windows 端还要确认 DDC 工具路径：
+### 3.3 高级配置与重新运行向导
+
+以后要修改配置：展开「更多信息与设置」→「配置」，点「重新运行配置向导」；或直接编辑白名单字段。
+
+Windows 端 DDC 工具路径：
 
 | 字段 | 说明 |
 | --- | --- |
 | `ddc.controlmyMonitor_path` | 默认 `C:\Tools\ControlMyMonitor.exe`，按实际位置改 |
 | `ddc.monitor_id` | 默认 `\\.\DISPLAY1\Monitor0`，多屏时按实际监视器改 |
 
-macOS 端确认 `ddc.m1ddc_path`（默认 `/opt/homebrew/bin/m1ddc`），或改用 `ddcutil`。
+macOS 端确认 `ddc.m1ddc_path`（默认 `/opt/homebrew/bin/m1ddc`）。
 
-### 3.3 识别显示器输入源
+### 3.4 识别显示器输入源
 
 不同品牌取值不一样，别猜，让工具测：
 
@@ -157,9 +159,9 @@ python3 main.py --detect-inputs --mac-input 15 --win-input 17  # 已知取值时
 python3 main.py --detect-inputs --no-write                     # 只看结果，不改配置
 ```
 
-成品包同样可以带参数运行（路径见 3.1）。网页控制台里也有「探测输入源」按钮，效果相同。
+成品包同样可以带参数运行（路径见 3.1）。设置窗口里也有「探测输入源」按钮，效果相同。
 
-### 3.4 配预共享密钥（必须）
+### 3.5 配预共享密钥（必须）
 
 `auth.secret` 为空时，同网段任何程序只要往 8765 发一行 JSON 就能切走你的显示器。推荐直接在设置页的「安全」区块填写，也可以生成后复制到两端：
 
@@ -170,12 +172,12 @@ python3 main.py --gen-secret
 
 把同一个值填进**两端**的「安全 → auth.secret」，保存后重启两端。
 
-### 3.5 自检：什么才算配好了
+### 3.6 自检：什么才算配好了
 
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.3）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.0）
 密钥校验     : 已通过（hmac-sha256）
 DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 ```
@@ -196,15 +198,17 @@ DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 
 | 方式 | 怎么用 | 前提 |
 | --- | --- | --- |
-| 托盘 / 菜单栏 | 右键图标 →「打开设置页面」/「切到 Mac」/「切到 Windows」/「查看状态（写入日志）」/「退出」 | 无 |
+| 托盘 / 菜单栏 | 右键图标 →「打开设置窗口」/「切到 Mac」/「切到 Windows」/「查看状态（写入日志）」/「退出」 | 无 |
 | 全局热键 | `Ctrl+Alt+1` → Mac，`Ctrl+Alt+2` → Windows | 只在 Windows `server` 端注册，需管理员权限 |
-| 网页控制台 | 浏览器打开带令牌的地址，点按钮 | 程序正在运行 |
+| 设置窗口 | 应用内原生 WebView 弹窗，点按钮或展开设置 | 程序正在运行 |
 
-### 4.2 网页控制台
+### 4.2 设置窗口与本地控制台
 
 只监听 `127.0.0.1`，每次启动生成新令牌：
 
-- 首次启动会自动在浏览器打开设置页面；
+- 首次启动会自动弹出应用内配置向导，不打开浏览器标签页；
+- 设置窗口由独立的 WebView 子进程承载，托盘和全局热键仍在主进程运行；
+- Windows 缺少 WebView2、或系统不支持 WebView 时，会自动回退到默认浏览器；
 - 启动日志里会打印 `Web 控制台：http://127.0.0.1:8767/?t=...`；
 - 成品包没有控制台窗口，去 `~/.quickswitch/quickswitch.log` 里找最后一条
   `Web 控制台已启动：...`，把整条地址粘进浏览器。
@@ -280,7 +284,7 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch"
 | macOS 提示 app「已损坏」 | 隔离属性。本地自测执行 `xattr -dr com.apple.quarantine /Applications/QuickSwitch.app` |
 | Windows 首次运行弹 SmartScreen | 未签名。更多信息 → 仍要运行；正式分发需代码签名 |
 | 网页打不开 | 端口 8767 被占，或被 `--no-web` 关了；去日志里看实际地址与令牌 |
-| 首次启动网页晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
+| 首次启动设置窗口晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
 | 点切换没反应 | DDC 工具路径错、显示器没开 DDC/CI、取值不对。先跑 `--status` 看 DDC 那一行 |
 | 显示器切了但键鼠没过去 | Deskflow 的问题：检查两端 Deskflow 连接与热键 |
 | 对端未连接 | IP / 端口、防火墙、对端没运行。`--status` 会写明「连接失败」 |

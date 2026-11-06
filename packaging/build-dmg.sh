@@ -11,11 +11,11 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP="${PROJECT_DIR}/dist/QuickSwitch.app"
 VERSION="$("${PYTHON:-python3}" "${SCRIPT_DIR}/print-version.py")"
 HOST_ARCH="$(uname -m)"
-case "$HOST_ARCH" in
-    arm64) ARCH="arm64" ;;
-    x86_64) ARCH="x64" ;;
-    *) ARCH="$HOST_ARCH" ;;
-esac
+[ "$HOST_ARCH" = "arm64" ] || {
+    printf '错误：QuickSwitch macOS 版只支持 Apple Silicon（arm64），当前主机为 %s\n' "$HOST_ARCH" >&2
+    exit 1
+}
+ARCH="arm64"
 OUT="${PROJECT_DIR}/dist/QuickSwitch-${VERSION}-macOS-${ARCH}.dmg"
 VOLNAME="QuickSwitch"
 
@@ -35,6 +35,11 @@ done
 
 [ -d "$APP" ] || die "找不到 ${APP}，请先运行 packaging/build-macos.sh"
 [ -x "${APP}/Contents/MacOS/QuickSwitch" ] || die "${APP} 不是有效的 QuickSwitch.app"
+APP_ARCHS="$(lipo -archs "${APP}/Contents/MacOS/QuickSwitch" 2>/dev/null || true)"
+case " $APP_ARCHS " in
+    *" arm64 "*) ;;
+    *) die "${APP} 不含 arm64 可执行文件（实际架构：${APP_ARCHS:-未知}）" ;;
+esac
 mkdir -p "$(dirname "$OUT")"
 
 STAGE="$(mktemp -d /tmp/quickswitch-dmg.XXXXXX)"
@@ -56,9 +61,9 @@ QuickSwitch 安装说明
 3. 首次打开若提示「无法验证开发者」：
    在 QuickSwitch 上右键 →「打开」→ 再点「打开」。
    （这是未签名版本的系统提示；签名并公证的版本不会出现。）
-4. 启动后菜单栏会出现图标，首次运行会自动打开设置页面：
-   填「对端地址」（另一台电脑的局域网 IP）、选好角色、两端填同一个预共享密钥，
-   保存后即可使用。
+4. 启动后菜单栏会出现图标，首次运行会自动打开配置向导：
+   按「连接 → 安全 → 显示器 → 完成」四步操作。两端填同一个预共享密钥，
+   完成后退出并重新打开 QuickSwitch 即可使用。
 
 详细步骤见项目里的 INSTALL.md。
 TXT

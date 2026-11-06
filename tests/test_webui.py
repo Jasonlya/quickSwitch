@@ -185,6 +185,7 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["host"]["name"], self.app.hostname)
         self.assertEqual(payload["version"], self.app.version)
+        self.assertFalse(payload["setup"]["completed"])
         self.assertEqual(payload["ddc"]["mac_input"], 15)
         self.assertEqual(payload["ddc"]["win_input"], 17)
         self.assertEqual(payload["ddc"]["tool_path"], "/fake/m1ddc")
@@ -245,7 +246,8 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(payload["config_path"], str(self.config_file))
         self.assertEqual(set(payload["values"]), {"role", "peer_host", "peer_port",
                                                   "listen_port", "debounce", "log_level",
-                                                  "hotkeys", "network", "discovery", "auth", "ddc"})
+                                                  "setup", "hotkeys", "network", "discovery",
+                                                  "auth", "ddc"})
         self.assertIn("role", payload["restart_prefixes"])
         self.assertIn("auth.", payload["restart_prefixes"])
         self.assertIn("ddc.", payload["immediate_prefixes"])
@@ -262,6 +264,23 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(self.app.cfg["auth"]["secret"], secret)
         on_disk = json.loads(self.config_file.read_text(encoding="utf-8"))
         self.assertEqual(on_disk["auth"]["secret"], secret)
+
+    def test_setup_completion_is_persisted_without_restart(self) -> None:
+        body = {"values": {
+            "setup": {"completed": True},
+            "peer_host": "auto",
+            "discovery": {"enabled": True},
+            "ddc": {"mac_input": 18, "win_input": 17},
+        }}
+        status, payload, _ = self.request("POST", "/api/config", body, token=self.token)
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertIn("setup.completed", payload["changed"])
+        self.assertIn("peer_host", payload["restart_keys"])
+        self.assertNotIn("setup.completed", payload["restart_keys"])
+        self.assertTrue(self.app.cfg["setup"]["completed"])
+        on_disk = json.loads(self.config_file.read_text(encoding="utf-8"))
+        self.assertTrue(on_disk["setup"]["completed"])
 
     def test_config_save_applies_and_flags_restart(self) -> None:
         body = {"values": {

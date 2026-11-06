@@ -158,10 +158,10 @@ class ExecutionTests(unittest.TestCase):
             switcher.switch_target("linux")
 
     def test_tool_available_for_absolute_path(self) -> None:
-        switcher = DDCSwitcher(make_cfg(), system="Darwin")
+        switcher = DDCSwitcher(make_cfg(m1ddc_path="/nonexistent/m1ddc"), system="Darwin")
         ok, detail = switcher.tool_available()
         self.assertFalse(ok)
-        self.assertIn("/opt/homebrew/bin/m1ddc", detail)
+        self.assertIn("/nonexistent/m1ddc", detail)
 
     def test_tool_available_for_missing_command(self) -> None:
         switcher = DDCSwitcher(make_cfg(ddcutil_path="definitely-not-a-command"), system="Linux")

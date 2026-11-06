@@ -3,6 +3,9 @@
 pystray==0.19.5
 Pillow==10.4.0
 
+# 原生设置窗口（macOS WKWebView / Windows WebView2）；不可用时回退到浏览器
+pywebview==6.2.1
+
 # 全局热键：只有 Windows（server）需要；macOS（client）不注册热键
 # 注意：keyboard 监听全局热键需要管理员权限（Windows）/ root（Linux）
 keyboard==0.13.5; sys_platform == "win32"

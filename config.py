@@ -38,6 +38,9 @@ DEFAULTS: Dict[str, Any] = {
     "listen_port": 8765,
     "tray": True,
     "log_level": "INFO",
+    "setup": {
+        "completed": False,           # 首次启动向导完成后置为 true
+    },
     "debounce": 0.6,                  # 同一目标的重复触发间隔（秒），防按键连发/重复执行
     "ddc": {
         "controlmyMonitor_path": r"C:\Tools\ControlMyMonitor.exe",
@@ -119,6 +122,7 @@ def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]
 def load_config(path: Optional[str] = None, *, create: bool = True) -> Dict[str, Any]:
     """加载配置；文件不存在时按需生成默认配置。"""
     target = config_path(path)
+    legacy_without_setup = False
     if target.exists():
         try:
             raw = json.loads(target.read_text(encoding="utf-8"))
@@ -126,7 +130,12 @@ def load_config(path: Optional[str] = None, *, create: bool = True) -> Dict[str,
             raise ConfigError(f"配置文件不是合法 JSON：{target}（{exc}）") from exc
         if not isinstance(raw, dict):
             raise ConfigError(f"配置文件顶层必须是 JSON 对象：{target}")
+        # 1.2.3 及更早版本的配置没有 setup 字段。升级后不能把它们当成首次运行，
+        # 否则老用户每次启动都会被向导打断。
+        legacy_without_setup = "setup" not in raw
         cfg = deep_merge(default_config(), raw)
+        if legacy_without_setup:
+            cfg["setup"]["completed"] = True
     else:
         cfg = default_config()
         if create:
@@ -171,6 +180,13 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
     role = cfg.get("role")
     if role not in VALID_ROLES:
         raise ConfigError(f"role 必须是 {VALID_ROLES} 之一，当前为 {role!r}")
+
+    setup = cfg.get("setup")
+    if not isinstance(setup, dict):
+        raise ConfigError("setup 必须是 JSON 对象")
+    completed = setup.get("completed")
+    if not isinstance(completed, bool):
+        raise ConfigError(f"setup.completed 必须是布尔值，当前为 {completed!r}")
 
     for field in ("peer_port", "listen_port"):
         value = cfg.get(field)

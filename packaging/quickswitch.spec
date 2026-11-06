@@ -44,11 +44,18 @@ def available(module: str):
         return []
 
 
-hiddenimports = available("pystray") + available("PIL._imaging")
+hiddenimports = available("pystray") + available("PIL._imaging") + available("webview")
 if IS_MAC:
-    hiddenimports += available("pystray._darwin")
+    hiddenimports += available("pystray._darwin") + available("webview.platforms.cocoa")
 elif IS_WIN:
-    hiddenimports += available("pystray._win32") + available("keyboard")
+    hiddenimports += (
+        available("pystray._win32")
+        + available("keyboard")
+        + available("webview.platforms.winforms")
+        + available("webview.platforms.edgechromium")
+        + available("clr")
+        + available("clr_loader")
+    )
 else:
     hiddenimports += available("pystray._xorg") + available("pystray._appindicator")
 
