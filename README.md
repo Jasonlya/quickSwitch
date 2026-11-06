@@ -94,6 +94,12 @@ git push origin v2.0.3
 
 构建产物会出现在仓库的 **Releases** 页面。
 
+## 架构
+
+[![QuickSwitch 运行架构](docs/images/quickswitch-architecture.gif)](https://jasonlya.github.io/quickswitch/architecture/)
+
+点击动图打开可交互版本，可切换深色/浅色主题，并查看主链路、键鼠共享和控制状态。
+
 ## License
 
 [MIT](LICENSE) © 2026 Jasonlya
