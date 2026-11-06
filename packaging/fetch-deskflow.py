@@ -12,6 +12,7 @@ Git 仓库。Deskflow 使用 GPL-2.0，详见仓库根目录 THIRD_PARTY_NOTICES
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import os
 import platform
@@ -181,6 +182,10 @@ def prepare(target_name: str, output: Path, *, if_missing: bool) -> Path:
 
 
 def main(argv: Optional[list] = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, OSError, ValueError):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description="下载 QuickSwitch 内置 Deskflow")
     parser.add_argument("--target", choices=sorted(ASSETS), default=None,
                         help="目标平台；默认按当前构建机判断")

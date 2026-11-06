@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+
 jobs:
   test:
     name: Tests (${{ matrix.os }})
@@ -27,7 +31,6 @@ jobs:
         shell: bash
         run: |
           set +e
-          export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
           python scripts/run-tests.py --timeout 900 2>&1 | tee "$RUNNER_TEMP/unit-tests.log"
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
