@@ -47,6 +47,8 @@ Windows 端已内置原生 DDC（DXVA2），**不需要安装 ControlMyMonitor**
 
 macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全性」中允许 QuickSwitch（权限列表里也可能显示 Deskflow 或 deskflow-core）使用**辅助功能**、**输入监控**和**本地网络**。如果核心因为缺少权限退出，QuickSwitch 会自动打开一次辅助功能设置页；键鼠共享状态也会显示「需要权限」。授权后展开「更多信息与设置 → 键鼠共享」，点「重启键鼠共享」即可。设置页还提供「打开辅助功能设置」和「打开输入监控设置」两个按钮。
 
+> `v2.0.4` 及更早版本升级后，如果开关已经打开仍提示「需要权限」，这是 Ad-hoc 签名绑定的旧 cdhash 失效。升级到 `v2.0.5` 后点设置页「重建 macOS 授权」，再重新打开两个开关即可；后续版本不会重复出现。
+
 ## 日常使用
 
 - 按 `Ctrl+Alt+1`：切到 Mac；按 `Ctrl+Alt+2`：切回 Windows。
@@ -74,6 +76,7 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 | Mac 上按界面的 `Ctrl+Alt+1/2` 没反应 | 热键由连接键鼠的 Windows 服务端注册，macOS 本机不注册；请使用 Windows 键盘，或直接用托盘/菜单栏按钮切换。`v2.0.4` 起界面会明确标注热键来源 |
 | 切到 Mac 后键位不对或中文输入法被改 | 升级到 `v2.0.4`。该版本默认关闭 Deskflow 语言同步，保留 Mac 当前输入源，重启键鼠共享后生效；只有两端键盘布局完全一致时才在设置页开启「同步键盘语言」 |
 | Windows 安装过程或完成页乱码 | 升级到 `v2.0.4`。新版 NSIS 安装器按 UTF-8 编译，修复中文页面乱码；旧版乱码不影响功能 |
+| Mac 已授权、重启后仍提示「需要权限」 | 升级到 `v2.0.5`。旧版 Ad-hoc 签名把授权绑在单次构建的 cdhash 上，换版本后系统设置里的开关会失效。新版已改为稳定签名；升级后展开「更多信息与设置 → 键鼠共享」，点「重建 macOS 授权」，再在系统设置里重新打开「辅助功能」和「输入监控」 |
 | Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`，先做不改变画面的写入自检；输出会包含具体 WinError 和处理建议 |
 | 键鼠共享没有启动 | 点主界面的「键鼠共享」状态入口查看可读结论；也可运行 `--deskflow-status` 确认 `installed`、`bundled`、`running`、`connected` 和 `last_error`。确认 `deskflow.auto_start` 开启；只有强制使用其它路径时才需要设置 `deskflow.path` |
 | 显示器切了但键鼠没过去 | 先点「重启键鼠共享」；确认两端 QuickSwitch 都在运行且键鼠共享状态为「已连接」。Windows 安装包会自动放行 TCP `24800`，macOS 需授予辅助功能/输入监控/本地网络权限。若显示「需要权限」或日志出现 `assistive devices does not trust this process` / `failed to create quartz event tap`，在系统设置中允许 QuickSwitch、Deskflow 或 deskflow-core，再重启核心 |
@@ -91,8 +94,8 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v2.0.4
-git push origin v2.0.4
+git tag v2.0.5
+git push origin v2.0.5
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

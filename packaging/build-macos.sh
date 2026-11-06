@@ -199,6 +199,14 @@ QS_ENTITLEMENTS="${SCRIPT_DIR}/entitlements.plist" \
 BUNDLED_DESKFLOW="$(find "${APP_PATH}/Contents" -type d -name Deskflow.app -print -quit)"
 [ -n "$BUNDLED_DESKFLOW" ] || die "打包失败：QuickSwitch.app 内没有 Deskflow.app"
 codesign --verify --deep --strict "$BUNDLED_DESKFLOW" || die "内置 Deskflow.app 签名校验失败"
+if [ "$DO_SIGN" = "0" ]; then
+    # Ad-hoc 包必须保留稳定 requirement，否则每次换版本 cdhash 变化都会让 TCC 授权失效。
+    REQUIREMENT_TEXT="$(codesign -d -r- "$APP_PATH" 2>&1 || true)"
+    case "$REQUIREMENT_TEXT" in
+        *'identifier "io.quickswitch.agent"'*) ;;
+        *) die "QuickSwitch.app 缺少稳定的 Ad-hoc designated requirement：${REQUIREMENT_TEXT}" ;;
+    esac
+fi
 info "已生成 $(basename "$APP_PATH")（$(du -sh "$APP_PATH" | cut -f1)）"
 info "内置 Deskflow：${BUNDLED_DESKFLOW#${APP_PATH}/}"
 

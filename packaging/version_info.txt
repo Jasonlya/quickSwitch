@@ -19,12 +19,12 @@ VSVersionInfo(
           [
             StringStruct("CompanyName", "QuickSwitch"),
             StringStruct("FileDescription", "QuickSwitch - display input and keyboard/mouse switcher"),
-            StringStruct("FileVersion", "2.0.4.0"),
+            StringStruct("FileVersion", "2.0.5.0"),
             StringStruct("InternalName", "QuickSwitch"),
             StringStruct("LegalCopyright", "MIT License"),
             StringStruct("OriginalFilename", "QuickSwitch.exe"),
             StringStruct("ProductName", "QuickSwitch"),
-            StringStruct("ProductVersion", "2.0.4.0"),
+            StringStruct("ProductVersion", "2.0.5.0"),
           ],
         )
       ]

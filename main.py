@@ -50,7 +50,7 @@ from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "2.0.4"
+VERSION = "2.0.5"
 TARGETS = ("mac", "win")
 
 
@@ -575,7 +575,8 @@ class QuickSwitchApp:
         if trusted is False:
             log.warning(
                 "键鼠共享需要 macOS 权限：请在「隐私与安全性 → 辅助功能 / 输入监控」"
-                "中允许 QuickSwitch；如果列表出现 Deskflow 或 deskflow-core，也一并允许。"
+                "中允许 QuickSwitch。若开关已经打开仍提示缺少权限，请在设置页点"
+                "「重建 macOS 授权」清除旧版记录，再重新打开两个开关。"
             )
 
     def restart_deskflow(self, reason: str = "手动重启") -> tuple[bool, str]:
@@ -905,6 +906,12 @@ class QuickSwitchApp:
         else:
             log.warning("键鼠共享：%s", detail)
 
+    def _tray_reset_macos_permissions(self, icon, item) -> None:
+        if deskflow_bridge.schedule_macos_permission_reset():
+            log.info("正在清除 macOS 旧授权记录并重启 QuickSwitch")
+        else:
+            log.warning("无法启动 macOS 授权重置")
+
     def _tray_quit(self, icon, item) -> None:
         icon.stop()
 
@@ -915,7 +922,7 @@ class QuickSwitchApp:
             link = "已连接" if self.peer.connected else "未连接"
             return f"当前：{LABEL.get(self.quick.state or '', '未知')}｜对端{link}"
 
-        menu = pystray.Menu(
+        menu_items = [
             pystray.MenuItem(state_text, None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("切到 Mac", self._tray_switch("mac")),
@@ -923,10 +930,19 @@ class QuickSwitchApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("打开设置窗口", self._tray_open_console),
             pystray.MenuItem("重启键鼠共享", self._tray_restart_deskflow),
-            pystray.MenuItem("查看状态（写入日志）", self._tray_status),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("退出", self._tray_quit),
+        ]
+        if self.platform == "Darwin":
+            menu_items.append(
+                pystray.MenuItem("重建 macOS 授权", self._tray_reset_macos_permissions)
+            )
+        menu_items.extend(
+            [
+                pystray.MenuItem("查看状态（写入日志）", self._tray_status),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("退出", self._tray_quit),
+            ]
         )
+        menu = pystray.Menu(*menu_items)
         self.icon = pystray.Icon("QuickSwitch", tray_image(), "QuickSwitch", menu)
         log.info("托盘图标已启动（右键菜单可切换、打开设置窗口）")
         self.icon.run()
@@ -1454,6 +1470,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="停止由 QuickSwitch 启动的键鼠共享核心后退出")
     parser.add_argument("--restart-deskflow", action="store_true",
                         help="按当前配置重启键鼠共享核心后退出")
+    parser.add_argument("--reset-macos-permissions", action="store_true",
+                        help="清除 QuickSwitch 的旧 TCC 记录，重启应用并打开权限设置页")
     parser.add_argument("--gen-secret", action="store_true",
                         help="生成一个 6 位配对码（写进两端配置的 auth.secret）后退出")
     parser.add_argument("--detect-inputs", action="store_true",
@@ -1481,6 +1499,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.settings_window:
         return run_settings_window(args.settings_window)
+    if args.reset_macos_permissions:
+        if platform.system() != "Darwin":
+            print("--reset-macos-permissions 仅适用于 macOS", file=sys.stderr)
+            return 2
+        if not deskflow_bridge.schedule_macos_permission_reset():
+            print("无法启动 macOS 授权重置", file=sys.stderr)
+            return 1
+        print(
+            "正在清除旧授权记录并重启 QuickSwitch；系统设置打开后，"
+            "请重新打开「辅助功能」和「输入监控」中的 QuickSwitch。",
+            flush=True,
+        )
+        return 0
     if args.gen_secret:
         print(json.dumps({"auth": {"secret": generate_pairing_code()}}, ensure_ascii=False))
         print(

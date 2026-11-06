@@ -12,6 +12,12 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+BUNDLE_IDENTIFIER = "io.quickswitch.agent"
+# Ad-hoc 签名默认把 designated requirement 绑定到 cdhash；只要重新打包，
+# cdhash 就会变化，macOS 会认为系统设置里的旧授权不再匹配。
+# 显式写入只依赖 Bundle ID 的稳定 requirement，升级后 TCC 记录才能继续命中。
+ADHOC_REQUIREMENT = f'=designated => identifier "{BUNDLE_IDENTIFIER}"'
+
 
 def run(command: list, *, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(command, check=check, capture_output=True, text=True)
@@ -46,8 +52,26 @@ def main(argv: Optional[list] = None) -> int:
         raise SystemExit(f"内置 Deskflow 签名无效：{verify_nested.stderr or verify_nested.stdout}")
 
     # 复制资源后 QuickSwitch 的外层签名会失效；先做 ad-hoc 签名。
+    # 这里显式写稳定的 designated requirement：否则 macOS TCC 会把授权绑定到
+    # 本次构建的 cdhash，用户升级后即使开关还开着也会提示「需要权限」。
     # 正式构建脚本随后会再用 Developer ID 签一次并公证。
-    run(["codesign", "--force", "--sign", "-", str(app)])
+    run(
+        [
+            "codesign",
+            "--force",
+            "--sign",
+            "-",
+            "--identifier",
+            BUNDLE_IDENTIFIER,
+            "--requirements",
+            ADHOC_REQUIREMENT,
+            str(app),
+        ]
+    )
+    requirement = run(["codesign", "-d", "-r-", str(app)], check=False)
+    requirement_text = f"{requirement.stdout}\n{requirement.stderr}"
+    if f'identifier "{BUNDLE_IDENTIFIER}"' not in requirement_text:
+        raise SystemExit(f"QuickSwitch.app 未写入稳定签名要求：{requirement_text.strip()}")
     verify_app = run(["codesign", "--verify", "--deep", "--strict", str(app)], check=False)
     if verify_app.returncode != 0:
         raise SystemExit(f"QuickSwitch.app 重签失败：{verify_app.stderr or verify_app.stdout}")

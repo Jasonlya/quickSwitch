@@ -412,6 +412,15 @@ class WebConsole:
             raise ValueError("不支持的权限设置项，或当前系统不是 macOS")
         return {"ok": True, "kind": kind}
 
+    def reset_macos_permissions(self) -> Dict[str, Any]:
+        ok = deskflow_bridge.schedule_macos_permission_reset()
+        if not ok:
+            raise ValueError("当前系统不是 macOS，或无法启动授权重置")
+        return {
+            "ok": True,
+            "detail": "正在清除旧授权记录并重启 QuickSwitch；请在系统设置中重新打开辅助功能与输入监控。",
+        }
+
     def config_view(self) -> Dict[str, Any]:
         cfg = self.app.cfg
         return {
@@ -595,6 +604,8 @@ class WebConsole:
                         self._json(200, console.stop_deskflow())
                     elif path == "/api/open-privacy":
                         self._json(200, console.open_privacy_settings(str(payload.get("kind") or "")))
+                    elif path == "/api/deskflow/reset-permissions":
+                        self._json(200, console.reset_macos_permissions())
                     else:
                         self._error(404, "未知 API")
                 except TimeoutError:

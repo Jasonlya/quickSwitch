@@ -50,7 +50,7 @@ function deskflowView(info) {
       state: "error",
       label: "需要权限",
       title: info.active_connections ? "已连上 Windows，但 macOS 尚未授权" : "macOS 尚未允许键鼠共享",
-      detail: "打开「系统设置 → 隐私与安全性」，在「辅助功能」和「输入监控」中允许 QuickSwitch；如果列表出现 Deskflow 或 deskflow-core，也一并允许。授权后回来点「重启键鼠共享」。",
+      detail: "打开「系统设置 → 隐私与安全性」，在「辅助功能」和「输入监控」中允许 QuickSwitch。若开关已经打开仍提示缺少权限，点「重建 macOS 授权」清除旧版残留，再重新打开两个开关。",
     };
   }
   if (!info.running) {
@@ -871,6 +871,9 @@ function renderStatus(status) {
     : "";
   $("btnOpenAccessibility").hidden = !(status.host && status.host.platform === "Darwin");
   $("btnOpenInputMonitoring").hidden = !(status.host && status.host.platform === "Darwin");
+  $("btnResetMacPermissions").hidden = !(
+    status.host && status.host.platform === "Darwin" && deskflow.permission_required
+  );
 
   $("probeDefault").textContent = (status.probe_candidates || []).join(", ") || DASH;
   renderOwnership(status);
@@ -975,6 +978,21 @@ async function openPrivacySettings(kind) {
     $("deskflowState").textContent = "已打开系统设置。授权后回到这里点「重启键鼠共享」。";
   } catch (error) {
     $("deskflowState").textContent = "无法打开系统设置：" + error.message;
+  }
+}
+
+async function resetMacPermissions() {
+  if (!window.confirm("将清除 QuickSwitch 的旧授权记录并自动重启。之后请在系统设置中重新打开「辅助功能」和「输入监控」。继续？")) {
+    return;
+  }
+  $("deskflowState").textContent = "正在清除旧授权并重启 QuickSwitch …";
+  try {
+    const result = await api("/api/deskflow/reset-permissions", { method: "POST", body: {} });
+    $("deskflowState").textContent = result.detail || "已开始重建授权";
+    notify("正在重启 QuickSwitch，请在系统设置中重新授权", "info");
+  } catch (error) {
+    $("deskflowState").textContent = "重建授权失败：" + error.message;
+    notify("重建授权失败：" + error.message, "error");
   }
 }
 
@@ -1259,6 +1277,7 @@ async function bootstrap() {
   $("btnStopDeskflow").addEventListener("click", () => deskflowAction("/api/deskflow/stop", "停止中 …"));
   $("btnOpenAccessibility").addEventListener("click", () => openPrivacySettings("accessibility"));
   $("btnOpenInputMonitoring").addEventListener("click", () => openPrivacySettings("input_monitoring"));
+  $("btnResetMacPermissions").addEventListener("click", resetMacPermissions);
   $("shareChip").addEventListener("click", () => {
     $("advanced").open = true;
     requestAnimationFrame(() => $("keymouse").scrollIntoView({ behavior: "smooth", block: "start" }));

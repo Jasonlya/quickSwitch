@@ -11,6 +11,7 @@ import logging
 import os
 import platform
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -45,6 +46,9 @@ PRIVACY_URLS = {
     "input_monitoring": "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
     "local_network": "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork",
 }
+
+BUNDLE_IDENTIFIER = "io.quickswitch.agent"
+MACOS_TCC_SERVICES = ("Accessibility", "ListenEvent", "PostEvent")
 
 
 class DeskflowError(RuntimeError):
@@ -349,6 +353,60 @@ def open_macos_privacy_settings(kind: str = "accessibility") -> bool:
         return True
     except OSError as exc:
         log.warning("打开 macOS 隐私设置失败：%s", exc)
+        return False
+
+
+def macos_app_bundle() -> Optional[Path]:
+    """返回当前运行的可执行文件所在的 .app；源码运行时返回 None。"""
+    if platform.system() != "Darwin":
+        return None
+    executable = Path(sys.executable).resolve()
+    for parent in executable.parents:
+        if parent.suffix == ".app":
+            return parent
+    return None
+
+
+def schedule_macos_permission_reset(*, app_path: Optional[Path] = None) -> bool:
+    """清除 QuickSwitch 的旧 TCC 记录，重启应用并打开权限设置页。
+
+    Ad-hoc 签名升级后，系统设置里可能留下绑定旧 cdhash 的授权记录：开关看起来
+    是打开的，但新进程永远匹配不上。这里用独立的 shell 进程执行 ``tccutil``，
+    避免 tccd 在重置时终止 QuickSwitch 导致 HTTP 响应来不及返回。用户仍需在
+    系统设置里手动重新打开辅助功能与输入监控，程序不会代替用户点击授权。
+    """
+    if platform.system() != "Darwin":
+        return False
+    target = Path(app_path) if app_path else macos_app_bundle()
+    script = [
+        "sleep 1",
+        *[
+            f"/usr/bin/tccutil reset {service} {BUNDLE_IDENTIFIER} >/dev/null 2>&1 || true"
+            for service in MACOS_TCC_SERVICES
+        ],
+        f'/usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" '
+        ">/dev/null 2>&1 || true",
+    ]
+    if target is not None:
+        script.extend(
+            [
+                "/usr/bin/killall -x QuickSwitch >/dev/null 2>&1 || true",
+                "sleep 1",
+                f"/usr/bin/open -a {shlex.quote(str(target))} >/dev/null 2>&1 || true",
+            ]
+        )
+    try:
+        subprocess.Popen(
+            ["/bin/sh", "-c", "\n".join(script)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+        return True
+    except OSError as exc:
+        log.warning("启动 macOS 权限重置失败：%s", exc)
         return False
 
 

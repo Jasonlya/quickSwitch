@@ -496,6 +496,26 @@ class PermissionTests(unittest.TestCase):
             self.assertFalse(deskflow_bridge.prompt_macos_accessibility())
         opener.assert_called_once_with("accessibility")
 
+    def test_schedule_permission_reset_uses_detached_tccutil(self) -> None:
+        app = Path("/Applications/QuickSwitch.app")
+        with mock.patch("deskflow_bridge.platform.system", return_value="Darwin"), \
+             mock.patch("deskflow_bridge.subprocess.Popen") as popen:
+            self.assertTrue(deskflow_bridge.schedule_macos_permission_reset(app_path=app))
+        command = popen.call_args.args[0]
+        script = command[2]
+        for service in ("Accessibility", "ListenEvent", "PostEvent"):
+            self.assertIn(f"tccutil reset {service} io.quickswitch.agent", script)
+        self.assertIn("Privacy_Accessibility", script)
+        self.assertIn("killall -x QuickSwitch", script)
+        self.assertIn("open -a /Applications/QuickSwitch.app", script)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    def test_schedule_permission_reset_is_macos_only(self) -> None:
+        with mock.patch("deskflow_bridge.platform.system", return_value="Windows"), \
+             mock.patch("deskflow_bridge.subprocess.Popen") as popen:
+            self.assertFalse(deskflow_bridge.schedule_macos_permission_reset())
+        popen.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

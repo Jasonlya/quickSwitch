@@ -282,7 +282,20 @@ macOS 首次使用只需授权一次：
 3. 在**本地网络**中允许 QuickSwitch 访问局域网。
 4. 回到 QuickSwitch 设置页，点「重启键鼠共享」。
 
-如果日志出现 `assistive devices does not trust this process`、`process is not trusted anymore` 或 `failed to create quartz event tap`，说明 macOS 尚未授权键鼠控制；主界面会显示「需要权限」，首次出现时 QuickSwitch 也会自动打开一次辅助功能设置页。允许 QuickSwitch（以及列表中的 Deskflow / deskflow-core）使用辅助功能和输入监控后，点「重启键鼠共享」。Windows 安装包会自动放行 TCP `24800`；源码运行或手工安装时需自行在防火墙放行该端口。
+如果日志出现 `assistive devices does not trust this process`、`process is not trusted anymore` 或 `failed to create quartz event tap`，说明 macOS 尚未授权键鼠控制；主界面会显示「需要权限」，首次出现时 QuickSwitch 也会自动打开一次辅助功能设置页。
+
+**已授权但仍提示「需要权限」**：这是 `v2.0.4` 及更早版本的已知问题。旧安装包使用 Ad-hoc 签名，macOS 会把授权绑定到当次构建的 cdhash；重新打包或升级后 cdhash 变化，系统设置里开关看起来是打开的，实际已经匹配不到新 App。`v2.0.5` 起改为稳定的 designated requirement，后续升级不会再次失效。升级后按下面步骤修复一次：
+
+1. 展开「更多信息与设置 → 键鼠共享」，点「重建 macOS 授权」；程序会清除旧记录、自动重启并打开系统设置。也可以完全退出 QuickSwitch 后在终端执行：
+
+   ```bash
+   /Applications/QuickSwitch.app/Contents/MacOS/QuickSwitch --reset-macos-permissions
+   ```
+
+2. 系统设置打开后，在**辅助功能**和**输入监控**中重新打开 QuickSwitch。若列表里还留着同名旧条目，先点 `−` 移除，再点 `＋` 添加 `/Applications/QuickSwitch.app`。
+3. 回到设置页点「重启键鼠共享」。状态应变为「已连接」，日志不再出现 `failed to create quartz event tap`。
+
+Windows 安装包会自动放行 TCP `24800`；源码运行或手工安装时需自行在防火墙放行该端口。
 
 验收方法：在 Windows 上按 `Ctrl+Alt+1`，显示器应切到 Mac，同时 Windows 键鼠应能控制 Mac；按 `Ctrl+Alt+2` 应反向切回。若显示器切了但键鼠没过去，先看主界面键鼠共享状态是否为「已连接」；「等待连接」表示共享核心已运行但两端尚未握手，「连接异常」会给出超时、拒绝连接或权限问题，再检查 macOS 权限和 Windows 的 TCP `24800` 防火墙规则。
 
@@ -345,6 +358,7 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch Discovery"
 | macOS 双击无反应，或终端启动卡在 `_dyld_start` | 启动策略缓存异常。先退出所有 QuickSwitch 进程，再执行 `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/QuickSwitch.app`，然后重新打开 App |
 | macOS 执行 `xattr -rd` 报 `Operation not permitted` | 新版 macOS 会保护 App 包内容，不需要递归清理隔离属性。停止该命令，改用「右键 App → 打开」；若仍无反应，按上一行刷新 LaunchServices |
 | macOS 提示 app「已损坏」 | 先重新从 DMG 拖入「应用程序」；仍被拦截时右键 → 打开，或到系统设置 → 隐私与安全性 → 仍要打开。不要递归修改 App 包内的扩展属性 |
+| macOS 已授权但仍提示「需要权限」 | `v2.0.4` 及更早版本把 Ad-hoc 授权绑在 cdhash 上，升级后会失效。升级到 `v2.0.5`，点设置页「重建 macOS 授权」，再在「辅助功能」和「输入监控」中重新打开 QuickSwitch；旧同名条目先移除再添加 |
 | Windows 首次运行弹 SmartScreen | 未签名。更多信息 → 仍要运行；正式分发需代码签名 |
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高；新版已启用 Per-Monitor V2 DPI 感知。必要时更新 Microsoft Edge WebView2 Runtime |
 | Windows 启动时有多个终端窗口闪动 | 升级到 `v2.0.1` 或更高。旧版会反复调用 `tasklist`/DDC 工具等控制台程序；新版统一使用 `CREATE_NO_WINDOW` 隐藏子进程窗口 |

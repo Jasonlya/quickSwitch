@@ -83,7 +83,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（2.0.4.0）
+    version_info.txt        Windows exe 的版本资源（2.0.5.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   THIRD_PARTY_NOTICES.md Deskflow 版本、GPL-2.0、源码与校验信息
@@ -141,6 +141,8 @@ python3 main.py
 
 授权：系统设置 → 隐私与安全性 → **辅助功能**、**输入监控**、**本地网络**勾选 QuickSwitch；若列表里出现 `Deskflow` 或 `deskflow-core`，也一并勾选。
 
+> **Ad-hoc 签名的 TCC 陷阱（v2.0.4 及更早）**：Ad-hoc 签名默认把 designated requirement 写成 `cdhash H"..."`。每次重新打包 cdhash 都会变化，TCC 日志会出现 `Failed to match existing code requirement`；系统设置里的开关看似打开，`AXIsProcessTrusted()` 仍返回 false，Deskflow 日志继续报 `failed to create quartz event tap`。`v2.0.5` 起 `bundle-deskflow.py` 在 Ad-hoc 签名时显式写入 `designated => identifier "io.quickswitch.agent"`，后续版本复用同一 Bundle ID 即可继续命中授权。该 requirement 只绑定 Bundle ID，适用于没有 Developer ID 证书的 Ad-hoc 发布；使用 Developer ID 正式签名时仍会生成包含证书和 Team ID 的更严格 requirement。设置页新增「重建 macOS 授权」，通过独立的 `tccutil reset` 进程清除 Accessibility / ListenEvent / PostEvent 的旧记录，再重启 App 并打开系统设置。
+
 ### 4.3 内置键鼠共享（Deskflow 核心 + 剪贴板）
 
 QuickSwitch 直接调用官方 `deskflow-core`，不启动 Deskflow GUI。`deskflow_bridge.py` 负责：
@@ -172,7 +174,7 @@ Windows 上所有状态轮询和 DDC 外部命令都通过 `process_utils.silent
 
 构建机由 `packaging/fetch-deskflow.py` 下载并校验官方 Deskflow `1.27.0`，macOS 由 `bundle-deskflow.py` 在 PyInstaller 完成后原样嵌入，Windows 由 NSIS 安装到 QuickSwitch 目录。用户不需要安装或打开 Deskflow 客户端，也不需要手工填写 Server/Client、屏幕布局或热键。
 
-Windows 安装包会自动放行 TCP `24800`。macOS 首次仍需在「隐私与安全性」中授予辅助功能、输入监控和本地网络权限；修改后点设置页「重启键鼠共享」。若日志出现 `assistive devices does not trust this process`、`process is not trusted anymore` 或 `failed to create quartz event tap`，设置页会标记需要权限，并在本次运行首次发现时自动打开一次辅助功能设置，同时提供「打开辅助功能设置」「打开输入监控设置」两个入口。两端内置版本统一为 `1.27.0`。
+Windows 安装包会自动放行 TCP `24800`。macOS 首次仍需在「隐私与安全性」中授予辅助功能、输入监控和本地网络权限；修改后点设置页「重启键鼠共享」。若日志出现 `assistive devices does not trust this process`、`process is not trusted anymore` 或 `failed to create quartz event tap`，设置页会标记需要权限，并在本次运行首次发现时自动打开一次辅助功能设置，同时提供「打开辅助功能设置」「打开输入监控设置」「重建 macOS 授权」三个入口。两端内置版本统一为 `1.27.0`。
 
 QuickSwitch 注册热键时使用 `suppress=False`，所以内置核心能收到同一个热键；`deskflow_bridge.py` 会把 `config.json` 的热键转换成 Deskflow 的 `keystroke(...) = switchToScreen(...)` 配置，无需在客户端里重复设置。
 
@@ -403,7 +405,7 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe` + NSIS 安装包（自带 Python 运行时、`ui/` 和 `deskflow\` 便携版） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` + `installer.nsi` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`、WKWebView 桥接依赖和嵌套 `Deskflow.app`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.0.4`）用于运行时与 macOS
+两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.0.5`）用于运行时与 macOS
 `CFBundleShortVersionString`；Windows 的 `packaging/version_info.txt` 是静态版本资源，发布时需要同步更新。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
@@ -438,7 +440,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-2.0.4.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-2.0.5.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -490,7 +492,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 ```bash
 python3 packaging/fetch-deskflow.py --target macos-arm64
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-2.0.4-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-2.0.5-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
@@ -498,7 +500,7 @@ Windows 安装包在 Windows 构建机上生成：
 ```powershell
 python packaging\fetch-deskflow.py --target windows-x64
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis -INPUTCHARSET UTF8 /DVERSION=2.0.4 packaging\installer.nsi
+makensis -INPUTCHARSET UTF8 /DVERSION=2.0.5 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后先在 macOS/Windows
@@ -510,8 +512,8 @@ macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v2.0.4
-git push origin v2.0.4
+git tag v2.0.5
+git push origin v2.0.5
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -556,8 +558,9 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v2.0.4` 继续内置官方 Deskflow 无界面核心，修正 Mac 热键提示与键盘布局同步策略，并修复 Windows 安装器中文乱码；macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v2.0.5` 修复 macOS Ad-hoc 签名导致升级后 TCC 授权失效的问题，并保留内置官方 Deskflow 无界面核心；macOS 安装包仅提供 Apple Silicon（arm64）。
 
+- **v2.0.5**：修复 macOS 每次授予辅助功能/输入监控后仍提示「需要权限」。旧版 Ad-hoc 签名的 designated requirement 绑定 cdhash，升级后 TCC 记录与新 App 不匹配；新版在 Ad-hoc 签名时显式写入稳定的 `identifier "io.quickswitch.agent"`，后续版本不再因重新打包丢失授权。设置页和托盘新增「重建 macOS 授权」，通过 `tccutil reset` 清除旧记录并重启 App；命令行可用 `--reset-macos-permissions`。新增对应回归测试。
 - **v2.0.4**：macOS 客户端默认关闭 Deskflow 的 `languageSync`，保留 Mac 自己的当前输入源，避免 Windows 布局在 Mac 上缺失时键位错乱；该选项仍可在设置页手动开启。Mac 主界面不再把未在本机注册的热键误标为可用热键，而是明确标注为「Windows 键盘」。Windows NSIS 安装器改用带 BOM 的 UTF-8 脚本并通过 `-INPUTCHARSET UTF8` 编译，修复安装过程与完成页中文乱码。新增配置校验、Deskflow 配置生成和安装器编码回归测试。
 - **v2.0.3**：修复 Windows 覆盖安装时旧 `QuickSwitch.exe` 仍在运行、导致二进制未真正替换的问题；安装器和卸载器会先结束旧的 QuickSwitch 与 `deskflow-core` 进程。设置窗口子进程若在启动阶段退出，父进程现在会识别失败并回退到默认浏览器，不再表现为点击后无响应。新增对应回归测试。
 - **v2.0.2**：修复 `v2.0.1` Windows 设置窗口不显示。设置窗口是 GUI 子进程，不能再复用带 `STARTUPINFO.wShowWindow = SW_HIDE` 的控制台静默参数；新版改用仅设置 `CREATE_NO_WINDOW` 的窗口子进程参数，既避免控制台闪动，也不会隐藏 WebView 窗口。新增对应回归测试。
@@ -578,7 +581,7 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
   Windows 自动使用 `server` 角色。
 - **已验证（Windows 高 DPI 配置）**：Windows EXE manifest 声明 Per-Monitor V2，
   `settings_window.py` 在 WebView2 创建前提供运行时兜底；manifest 解析和专项测试通过。
-- **发布产物**：GitHub Actions 在 `v2.0.4` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **发布产物**：GitHub Actions 在 `v2.0.5` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；

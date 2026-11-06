@@ -227,23 +227,14 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch ${{ github.ref_name }}：修正 Mac 热键提示与跨系统键位布局，并修复 Windows 安装器中文乱码。
+            QuickSwitch ${{ github.ref_name }}：修复 macOS 升级后键鼠共享权限失效。
 
-            - macOS 主界面把未在本机注册的热键明确标注为「Windows 键盘」，不再显示成 Mac 本机热键
-            - macOS 客户端默认保留自己的当前输入源，不再错误跟随 Windows 键盘布局；设置页可按需开启「同步键盘语言」
-            - 键鼠共享详情会显示当前使用的是「保留 Mac 输入源」还是「跟随 Windows 布局」
-            - Windows NSIS 安装器改为 UTF-8 编译，修复安装过程页和完成页的中文乱码
-            - Windows 安装器覆盖安装前自动结束旧版 QuickSwitch 与 `deskflow-core`，避免旧 exe 被占用、修复实际未生效
-            - 设置窗口子进程启动后立即退出时自动回退到默认浏览器，不再出现点击「打开设置窗口」无响应
-            - 官方 Deskflow 1.27.0 无界面核心直接内置，不再安装或打开 Deskflow 客户端
-            - Windows 自动作为服务端，macOS 自动作为客户端，并自动发现对端地址
-            - 自动生成键鼠共享配置，同步热键、端口、屏幕左右布局和剪贴板共享
-            - QuickSwitch 启动/退出时自动管理核心进程，设置页和托盘可重启或停止
-            - 主界面键鼠共享状态只在真实 TCP 已连接时显示「已连接」，失败会显示超时、拒绝或权限原因
-            - Windows 安装包自动放行 TCP 24800；macOS App 内置官方 `Deskflow.app`
-            - macOS 设置页提供辅助功能、输入监控和本地网络权限引导
-            - 应用内原生设置窗口，保留 DDC 切换、6 位配对码、配置向导和 Windows DPI 修复
-            - 内置 Python 运行时，目标电脑不需要安装 Python 或依赖
+            - **修复 macOS 已授权仍提示「需要权限」**：旧版 Ad-hoc 签名把 TCC 授权绑定到单次构建的 cdhash，升级后系统设置里的开关会失效；新版写入稳定的 designated requirement，后续版本不再丢授权
+            - 设置页新增「重建 macOS 授权」：清除 Accessibility / ListenEvent / PostEvent 的旧 TCC 记录，自动重启并打开系统设置；托盘菜单也可操作
+            - 命令行可执行 `/Applications/QuickSwitch.app/Contents/MacOS/QuickSwitch --reset-macos-permissions`
+            - 权限提示会明确说明「开关已打开仍报错」的处理方式，不再只重复要求授权
+            - 继续内置官方 Deskflow 1.27.0 无界面核心，Windows 自动服务端、macOS 自动客户端
+            - 保留 DDC 输入源切换、6 位配对码、配置向导、Windows 高 DPI 修复和安装包内置 Python 运行时
             - macOS 仅支持 Apple Silicon（arm64），Windows 支持 10/11 x64
 
             安装包尚未签名：macOS 首次打开请右键 App →「打开」；Windows 如遇 SmartScreen，请选择「更多信息 → 仍要运行」。
