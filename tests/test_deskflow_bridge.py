@@ -4,6 +4,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -139,6 +140,18 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("externalConfig=true", text)
         self.assertIn(f"externalConfigFile={item.server_config_path}", text)
         self.assertIn("enableClipboard=true", text)
+
+    def test_server_settings_escape_windows_path_for_ini_parser(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            item = replace(
+                prepared(tmp, mode="server"),
+                server_config_path=Path(r"D:\a\_temp\deskflow\Deskflow-server.conf"),
+            )
+            text = deskflow_bridge.render_settings(self.cfg(role="server"), item)
+        self.assertIn(
+            "externalConfigFile=D:/a/_temp/deskflow/Deskflow-server.conf",
+            text,
+        )
 
     def test_server_layout_and_hotkeys(self) -> None:
         text = deskflow_bridge.render_server_config(self.cfg())

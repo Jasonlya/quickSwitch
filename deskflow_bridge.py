@@ -445,10 +445,12 @@ def render_settings(cfg: Dict[str, Any], prepared: PreparedDeskflow) -> str:
         "",
     ]
     if prepared.mode == "server":
+        # Deskflow 的 INI 解析器会把反斜杠当作转义符；Windows 路径必须用正斜杠。
+        external_config = str(prepared.server_config_path).replace("\\", "/")
         lines.extend((
             "[server]",
             "externalConfig=true",
-            f"externalConfigFile={prepared.server_config_path}",
+            f"externalConfigFile={external_config}",
             "enableClipboard=true",
             "",
         ))
