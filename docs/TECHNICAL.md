@@ -484,6 +484,12 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
+- **已验证**：`v1.2.1` 的 GitHub Actions 发布任务成功，Release 包含
+  `QuickSwitch-1.2.1-macOS-arm64.dmg`、`QuickSwitch-1.2.1-macOS-x64.dmg`、
+  `QuickSwitch-Setup-1.2.1.exe` 与 `SHA256SUMS.txt`；三个资产与校验文件一致，两个 DMG 均通过
+  `hdiutil verify`。arm64 包内二进制实际运行返回 `QuickSwitch 1.2.1`，x64 包内二进制为
+  Mach-O x86_64，Windows 资产是有效的 NSIS 安装器。从 arm64 DMG 启动成品 App 后确认：
+  主页只显示两个切换按钮、设置区默认折叠、按钮提示包含连接/密钥/DDC/热键摘要，状态接口版本为 `1.2.1`。
 - **已验证**：`packaging/build-macos.sh --no-sign` 在本机真实跑通 PyInstaller 打包，产出 `QuickSwitch.app`（约 34 MB）；
   `packaging/build-dmg.sh` 产出 `QuickSwitch-1.2.0-macOS-arm64.dmg`（约 15 MB，挂载后包含 App、Applications 快捷方式与安装说明）；
   该 .app 的冻结二进制实测 `--version` / `--print-config` / `--status` 正常，`CFBundleShortVersionString=1.2.0`；
