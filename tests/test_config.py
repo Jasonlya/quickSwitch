@@ -26,6 +26,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg["role"], "server")
         self.assertFalse(cfg["setup"]["completed"])
         self.assertEqual(cfg["ddc"]["mac_input"], 15)
+        self.assertTrue(cfg["deskflow"]["clipboard_enabled"])
+        self.assertEqual(cfg["deskflow"]["clipboard_size"], 16)
         written = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(written, config_module.DEFAULTS)
 
@@ -108,6 +110,47 @@ class ConfigTests(unittest.TestCase):
     def test_invalid_deskflow_language_sync_raises(self) -> None:
         self.path.write_text(
             json.dumps({"deskflow": {"language_sync": "yes"}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
+    def test_invalid_clipboard_settings_raise(self) -> None:
+        self.path.write_text(
+            json.dumps({"deskflow": {"clipboard_enabled": "yes"}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+        self.path.write_text(
+            json.dumps({"deskflow": {"clipboard_size": 0}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
+    def test_hotkey_normalization(self) -> None:
+        self.assertEqual(config_module.normalize_hotkey("Ctrl+Alt+1"), "ctrl+alt+1")
+        self.assertEqual(
+            config_module.normalize_hotkey("cmd+shift+space"), "shift+windows+space"
+        )
+        self.assertEqual(config_module.normalize_hotkey("f8"), "f8")
+        self.assertIsNone(config_module.normalize_hotkey("a"))
+        self.assertIsNone(config_module.normalize_hotkey("hyper+1"))
+
+    def test_invalid_custom_hotkey_raises(self) -> None:
+        self.path.write_text(
+            json.dumps({"hotkeys": {"switch_to_mac": "a"}}), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(config_module.ConfigError, "格式无效"):
+            config_module.load_config()
+
+    def test_same_hotkey_is_case_insensitive(self) -> None:
+        self.path.write_text(
+            json.dumps({
+                "hotkeys": {
+                    "switch_to_mac": "CTRL+ALT+1",
+                    "switch_to_win": "ctrl+alt+1",
+                }
+            }),
+            encoding="utf-8",
         )
         with self.assertRaises(config_module.ConfigError):
             config_module.load_config()

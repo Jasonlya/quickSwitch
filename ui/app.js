@@ -100,6 +100,16 @@ function deskflowPermissionText(info) {
   return "读取不到授权状态；如键鼠无效请检查辅助功能与输入监控";
 }
 
+function clipboardSummary(info) {
+  if (!info) return DASH;
+  if (info.mode === "client") {
+    return "由 Windows 服务端控制 · 在 Windows 的「配置 → 键鼠共享」中开关和调整上限";
+  }
+  if (!info.clipboard_enabled) return "已关闭（不会同步复制内容）";
+  const size = info.clipboard_size == null ? DASH : info.clipboard_size + " MB";
+  return "已开启 · 文本 / HTML / 图片 · 上限 " + size + " · 由本机控制";
+}
+
 function clock(iso) {
   if (!iso) return DASH;
   const date = new Date(iso);
@@ -677,7 +687,7 @@ function renderOwnership(status) {
 
   const state = $("ownershipState");
   if (pendingTarget) {
-    state.textContent = "切换中：正在切到 " + LABEL[pendingTarget] + "（等待本机 DDC 与对端确认）";
+    state.textContent = "切换中：正在切到 " + LABEL[pendingTarget] + "（本机立即切换，对端后台确认）";
   } else if (owner) {
     state.textContent =
       "当前持有：" + LABEL[owner] + " ｜ 显示器输入源 " + text(input.value) +
@@ -740,7 +750,7 @@ function renderSwitchboard(status) {
       for (const part of combo.split("+")) {
         if (!part.trim()) continue;
         const key = document.createElement("kbd");
-        key.textContent = part.trim();
+        key.textContent = hotkeyPartLabel(part);
         shortcut.appendChild(key);
       }
     }
@@ -854,6 +864,7 @@ function renderStatus(status) {
     ["活动连接", deskflow.active_connections === null || deskflow.active_connections === undefined ? "读取不到" : text(deskflow.active_connections)],
     ["最近错误", text(deskflow.last_error)],
     ["连接方向", deskflow.mode === "server" ? "本机提供键鼠（服务端）" : "本机接收键鼠（客户端）"],
+    ["共享剪贴板", clipboardSummary(deskflow)],
     ["键盘布局", deskflow.mode === "server"
       ? "Windows 保持自身布局"
       : deskflow.language_sync
@@ -1007,13 +1018,19 @@ const CONFIG_FIELDS = [
     { path: "log_level", type: "select", options: ["DEBUG", "INFO", "WARNING", "ERROR"] },
   ] },
   { group: "热键", fields: [
-    { path: "hotkeys.switch_to_mac", type: "text" },
-    { path: "hotkeys.switch_to_win", type: "text" },
+    { path: "hotkeys.switch_to_mac", type: "hotkey", label: "切到 Mac", defaultValue: "ctrl+alt+1",
+      hint: "点「录入」后按下组合键。热键在连接键鼠的 Windows 端生效；设置后立即重新注册。" },
+    { path: "hotkeys.switch_to_win", type: "hotkey", label: "切到 Windows", defaultValue: "ctrl+alt+2",
+      hint: "至少包含 Ctrl / Alt / Shift / Win 中一个修饰键；F1-F12 可单独使用。" },
   ] },
   { group: "键鼠共享（内置，无需打开 Deskflow）", fields: [
     { path: "deskflow.auto_start", type: "checkbox" },
     { path: "deskflow.port", type: "number", min: 1, max: 65535 },
     { path: "deskflow.mac_side", type: "select", options: ["left", "right"] },
+    { path: "deskflow.clipboard_enabled", type: "checkbox", label: "共享剪贴板",
+      hint: "双向同步复制的文本、HTML 和图片；需两端键鼠共享已连接。以 Windows 服务端设置为准。" },
+    { path: "deskflow.clipboard_size", type: "number", min: 1, max: 128, step: 1,
+      label: "剪贴板上限（MB）", hint: "单次复制内容的最大体积，默认 16 MB。客户端沿用 Windows 端设置。" },
     { path: "deskflow.language_sync", type: "checkbox", label: "同步键盘语言（高级）",
       hint: "默认关闭，保留 Mac 当前输入源。只有两台电脑安装完全相同的键盘布局时才建议开启。" },
     { path: "deskflow.path", type: "text" },
@@ -1084,10 +1101,102 @@ function configValue(input) {
   return input.value === "" ? null : input.value;
 }
 
+const HOTKEY_PART_LABELS = {
+  ctrl: "Ctrl", control: "Ctrl", alt: "Alt", option: "Alt", shift: "Shift",
+  win: "Win", windows: "Win", cmd: "Cmd", command: "Cmd", meta: "Win", super: "Win",
+  esc: "Esc", return: "Enter", pageup: "PgUp", pagedown: "PgDn",
+  arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
+};
+
+function hotkeyPartLabel(part) {
+  const key = String(part || "").trim().toLowerCase();
+  return HOTKEY_PART_LABELS[key] || part;
+}
+
+let hotkeyRecording = null;
+
+function hotkeyFromEvent(event) {
+  if (event.repeat) return null;
+  const modifierOnly = new Set([
+    "Control", "Alt", "Shift", "Meta", "CapsLock", "NumLock", "ScrollLock",
+    "ContextMenu", "Dead", "Unidentified",
+  ]);
+  if (modifierOnly.has(event.key)) return null;
+
+  const code = String(event.code || "");
+  const named = {
+    Space: "space", Tab: "tab", Enter: "enter", NumpadEnter: "enter",
+    Backspace: "backspace", Delete: "delete", Insert: "insert",
+    Home: "home", End: "end", PageUp: "pageup", PageDown: "pagedown",
+    ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
+  };
+  let key = null;
+  if (/^Key[A-Z]$/.test(code)) key = code.slice(3).toLowerCase();
+  else if (/^Digit[0-9]$/.test(code)) key = code.slice(5);
+  else if (/^F(?:[1-9]|1[0-2])$/.test(code)) key = code.toLowerCase();
+  else key = named[code] || null;
+  if (!key) return null;
+
+  const modifiers = [];
+  if (event.ctrlKey) modifiers.push("ctrl");
+  if (event.altKey) modifiers.push("alt");
+  if (event.shiftKey) modifiers.push("shift");
+  if (event.metaKey) modifiers.push("windows");
+  if (!modifiers.length && !/^f(?:[1-9]|1[0-2])$/.test(key)) return null;
+  return modifiers.concat(key).join("+");
+}
+
+function stopHotkeyRecording() {
+  if (!hotkeyRecording) return;
+  const current = hotkeyRecording;
+  hotkeyRecording = null;
+  document.removeEventListener("keydown", captureHotkey, true);
+  document.removeEventListener("pointerdown", cancelHotkeyRecordingOutside, true);
+  window.removeEventListener("blur", stopHotkeyRecording);
+  current.input.dataset.recording = "false";
+  current.button.dataset.recording = "false";
+  current.button.textContent = "录入";
+}
+
+function cancelHotkeyRecordingOutside(event) {
+  if (!hotkeyRecording) return;
+  const row = hotkeyRecording.input.closest(".hotkey-input-row");
+  if (row && row.contains(event.target)) return;
+  stopHotkeyRecording();
+}
+
+function startHotkeyRecording(path, input, button) {
+  stopHotkeyRecording();
+  hotkeyRecording = { path, input, button };
+  input.dataset.recording = "true";
+  button.dataset.recording = "true";
+  button.textContent = "按下组合键…";
+  document.addEventListener("keydown", captureHotkey, true);
+  document.addEventListener("pointerdown", cancelHotkeyRecordingOutside, true);
+  window.addEventListener("blur", stopHotkeyRecording);
+}
+
+function captureHotkey(event) {
+  if (!hotkeyRecording) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === "Escape") {
+    stopHotkeyRecording();
+    return;
+  }
+  const combo = hotkeyFromEvent(event);
+  if (!combo) return;
+  const { path, input } = hotkeyRecording;
+  input.value = combo;
+  markDirty(path);
+  stopHotkeyRecording();
+}
+
 let configBase = null;
 let restartPrefixes = [];
 
 function renderConfig(view) {
+  stopHotkeyRecording();
   configBase = view.values;
   restartPrefixes = view.restart_prefixes || [];
   INPUTS.clear();
@@ -1127,6 +1236,13 @@ function renderConfig(view) {
       } else if (field.type === "textarea") {
         input = document.createElement("textarea");
         input.value = value == null ? "" : (Array.isArray(value) ? value.join("\n") : String(value));
+      } else if (field.type === "hotkey") {
+        input = document.createElement("input");
+        input.type = "text";
+        input.readOnly = true;
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        input.value = value == null ? "" : String(value);
       } else {
         input = document.createElement("input");
         input.type = field.type;
@@ -1139,7 +1255,30 @@ function renderConfig(view) {
       input.id = "cfg-" + field.path;
       input.addEventListener("input", () => markDirty(field.path));
       input.addEventListener("change", () => markDirty(field.path));
-      wrap.append(label, input);
+      let control = input;
+      if (field.type === "hotkey") {
+        const row = document.createElement("div");
+        row.className = "hotkey-input-row";
+        const record = document.createElement("button");
+        record.type = "button";
+        record.className = "config-mini";
+        record.textContent = "录入";
+        record.addEventListener("click", () => startHotkeyRecording(field.path, input, record));
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.className = "config-mini config-mini-quiet";
+        reset.textContent = "默认";
+        reset.title = "恢复为 " + field.defaultValue;
+        reset.addEventListener("click", () => {
+          stopHotkeyRecording();
+          input.value = field.defaultValue;
+          markDirty(field.path);
+        });
+        input.addEventListener("click", () => startHotkeyRecording(field.path, input, record));
+        row.append(input, record, reset);
+        control = row;
+      }
+      wrap.append(label, control);
       if (field.hint) {
         const hint = document.createElement("p");
         hint.className = "config-hint";

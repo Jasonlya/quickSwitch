@@ -38,6 +38,7 @@ from config import (
     generate_pairing_code,
     load_config,
     log_file,
+    normalize_hotkey,
     save_config,
     validate,
 )
@@ -50,7 +51,7 @@ from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "2.0.5"
+VERSION = "2.1.0"
 TARGETS = ("mac", "win")
 
 
@@ -177,6 +178,10 @@ class QuickSwitch:
         self._pending: Dict[str, asyncio.Future] = {}
         self._last_trigger = 0.0
         self._last_target: Optional[str] = None
+        self._remote_task: Optional[asyncio.Task] = None
+        self._background_tasks: set[asyncio.Task] = set()
+        self.switching = False
+        self.switch_target: Optional[str] = None
 
     # ---------------------------------------------------------------- 辅助
     def set_peer(self, peer: Optional[PeerConnection]) -> None:
@@ -222,27 +227,110 @@ class QuickSwitch:
             return await self._do_switch(target, source=source, notify=True)
 
     async def _do_switch(self, target: str, *, source: str, notify: bool) -> bool:
+        started = time.monotonic()
         log.info("切换请求：→ %s（来源：%s）", LABEL[target], source)
-        local_ok = await self._local_switch(target)
-        if local_ok:
-            self.state = target
+        self.switching = True
+        self.switch_target = target
+        self._cancel_remote_task()
 
-        if not notify or self.peer is None:
-            return local_ok
+        local_task = asyncio.create_task(self._local_switch(target))
+        remote_task: Optional[asyncio.Task] = None
+        if notify and self.peer is not None and getattr(self.peer, "connected", False):
+            # 本机 DDC 和远端冗余切换并行执行。Windows 本地通常几十毫秒完成，
+            # 不再被 macOS 上可能失败并重试两秒的 m1ddc 拖住。
+            remote_task = asyncio.create_task(self._notify_peer(target))
+            self._remote_task = remote_task
+            remote_task.add_done_callback(self._clear_remote_task)
 
-        remote_ok = await self._notify_peer(target)
-        if remote_ok is None:
-            log.info(
-                "本地 DDC %s；对端未确认（对端程序可能未运行或未连接）",
-                "成功" if local_ok else "失败",
-            )
-        else:
-            log.info(
-                "本地 DDC %s；对端 DDC %s",
-                "成功" if local_ok else "失败",
-                "成功" if remote_ok else "失败",
-            )
-        return local_ok or remote_ok is True
+        try:
+            local_ok = await local_task
+            if local_ok:
+                self.state = target
+
+            if remote_task is None:
+                log.info(
+                    "切换完成：→ %s，本地 DDC %s，用时 %.0f ms",
+                    LABEL[target], "成功" if local_ok else "失败",
+                    (time.monotonic() - started) * 1000,
+                )
+                return local_ok
+
+            if local_ok:
+                # 本地已经完成实际画面切换。给对端一个很短的确认窗口，
+                # 超时后让它在后台继续；这样下一次热键不会被 ACK 超时阻塞。
+                done, _ = await asyncio.wait({remote_task}, timeout=0.35)
+                if remote_task not in done:
+                    self._watch_remote_task(remote_task)
+                    log.info(
+                        "切换完成：→ %s，本地 DDC 成功，用时 %.0f ms；"
+                        "对端确认转入后台，不阻塞后续热键",
+                        LABEL[target], (time.monotonic() - started) * 1000,
+                    )
+                    return True
+                remote_ok = remote_task.result()
+            else:
+                remote_ok = await remote_task
+                if remote_ok is True:
+                    self.state = target
+
+            if remote_ok is None:
+                log.info(
+                    "切换完成：→ %s，本地 DDC %s，对端未确认；用时 %.0f ms",
+                    LABEL[target], "成功" if local_ok else "失败",
+                    (time.monotonic() - started) * 1000,
+                )
+            else:
+                log.info(
+                    "切换完成：→ %s，本地 DDC %s，对端 DDC %s；用时 %.0f ms",
+                    LABEL[target], "成功" if local_ok else "失败",
+                    "成功" if remote_ok else "失败",
+                    (time.monotonic() - started) * 1000,
+                )
+            return local_ok or remote_ok is True
+        finally:
+            self.switching = False
+            self.switch_target = None
+
+    def _watch_remote_task(self, task: asyncio.Task) -> None:
+        async def watch() -> None:
+            try:
+                remote_ok = await task
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                log.warning("对端 DDC 后台确认失败：%s", exc)
+                return
+            if remote_ok is None:
+                log.info("对端 DDC 后台确认：未确认（连接可能刚断开）")
+            else:
+                log.info("对端 DDC 后台确认：%s", "成功" if remote_ok else "失败")
+
+        watcher = asyncio.create_task(watch())
+        self._background_tasks.add(watcher)
+        watcher.add_done_callback(self._background_tasks.discard)
+
+    def _cancel_remote_task(self) -> None:
+        task = self._remote_task
+        self._remote_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _clear_remote_task(self, task: asyncio.Task) -> None:
+        if self._remote_task is task:
+            self._remote_task = None
+
+    def cancel_background_tasks(self) -> List[asyncio.Task]:
+        """停止进程时取消仍在等待的对端确认，避免关闭事件循环时留下任务警告。"""
+        pending: List[asyncio.Task] = []
+        if self._remote_task is not None and not self._remote_task.done():
+            pending.append(self._remote_task)
+        self._cancel_remote_task()
+        for task in list(self._background_tasks):
+            if not task.done():
+                pending.append(task)
+                task.cancel()
+        self._background_tasks.clear()
+        return pending
 
     async def _local_switch(self, target: str) -> bool:
         fn = self.ddc.switch_to_mac if target == "mac" else self.ddc.switch_to_win
@@ -683,6 +771,9 @@ class QuickSwitchApp:
             log.info("对端地址固定为 %s:%s", self.peer.host, self.peer.port)
 
     async def _shutdown_async(self) -> None:
+        pending = self.quick.cancel_background_tasks()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         if self.discovery is not None:
             await self.discovery.stop()
         await self.peer.stop()
@@ -824,6 +915,7 @@ class QuickSwitchApp:
 
     # ---------------------------------------------------------------- 热键
     def _setup_hotkeys(self) -> None:
+        self.hotkeys_registered = False
         if str(self.cfg.get("role")) != "server":
             self.hotkeys_reason = "client 模式不在本机注册热键（热键在 Windows 端注册）"
             log.info("client 模式：不在本机注册热键（热键在 Windows 端注册）")
@@ -839,6 +931,10 @@ class QuickSwitchApp:
             )
             return
         self._keyboard = keyboard
+        # 保存配置后会再次调用本方法。旧实现只 add 不 remove，导致新热键生效时
+        # 旧热键仍留在全局钩子里；连续改几次后多个组合键会同时触发。
+        with contextlib.suppress(Exception):
+            keyboard.unhook_all_hotkeys()
         hotkeys = self.cfg.get("hotkeys") or {}
         registered: List[str] = []
         failures: List[str] = []
@@ -846,13 +942,18 @@ class QuickSwitchApp:
             combo = str(hotkeys.get(field) or "").strip()
             if not combo:
                 continue
+            normalized = normalize_hotkey(combo)
+            if normalized is None:
+                failures.append(f"{combo}（格式无效）")
+                log.error("热键 %s 格式无效，未注册", combo)
+                continue
             try:
                 # suppress=False：Deskflow 也要能收到同一热键来切换键鼠控制权
                 keyboard.add_hotkey(
-                    combo, functools.partial(self.trigger, target, "hotkey"), suppress=False
+                    normalized, functools.partial(self.trigger, target, "hotkey"), suppress=False
                 )
-                registered.append(f"{combo} → {LABEL[target]}")
-                log.info("已注册热键 %s → %s", combo, LABEL[target])
+                registered.append(f"{normalized} → {LABEL[target]}")
+                log.info("已注册热键 %s → %s", normalized, LABEL[target])
             except Exception as exc:
                 failures.append(f"{combo}（{exc}）")
                 log.error("注册热键 %s 失败：%s（通常需要管理员权限）", combo, exc)

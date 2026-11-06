@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from config import normalize_hotkey
 from process_utils import silent_subprocess_kwargs
 
 log = logging.getLogger("deskflow")
@@ -421,55 +422,16 @@ def _state_dir(cfg: Dict[str, Any], base_dir: Optional[Path]) -> Path:
 
 def _hotkey_to_deskflow(combo: Any) -> Optional[str]:
     """把 QuickSwitch/keyboard 风格热键转成 Deskflow 的 keystroke() 语法。"""
-    text = str(combo or "").strip().lower()
-    if not text:
+    normalized = normalize_hotkey(combo)
+    if normalized is None:
         return None
-    parts = [part.strip() for part in text.split("+") if part.strip()]
-    if not parts:
-        return None
-
-    modifiers = []
     aliases = {
         "ctrl": "control",
-        "control": "control",
-        "alt": "alt",
-        "option": "alt",
-        "shift": "shift",
-        "cmd": "super",
-        "command": "super",
-        "win": "super",
         "windows": "super",
-        "meta": "super",
-        "super": "super",
-    }
-    for part in parts[:-1]:
-        modifier = aliases.get(part)
-        if not modifier:
-            return None
-        if modifier not in modifiers:
-            modifiers.append(modifier)
-
-    key = parts[-1]
-    key_aliases = {
-        "esc": "escape",
         "enter": "return",
-        "del": "delete",
-        "ins": "insert",
-        "pgup": "pageup",
-        "pgdn": "pagedown",
-        "arrowleft": "left",
-        "arrowright": "right",
-        "arrowup": "up",
-        "arrowdown": "down",
+        "esc": "escape",
     }
-    key = key_aliases.get(key, key)
-    if not (len(key) == 1 and key.isalnum()) and not re.fullmatch(r"f(?:[1-9]|1[0-2])", key):
-        if key not in {
-            "space", "tab", "return", "escape", "backspace", "delete", "insert",
-            "home", "end", "pageup", "pagedown", "left", "right", "up", "down",
-        }:
-            return None
-    return "+".join([*modifiers, key])
+    return "+".join(aliases.get(part, part) for part in normalized.split("+"))
 
 
 def render_server_config(cfg: Dict[str, Any]) -> str:
@@ -525,11 +487,14 @@ def render_settings(cfg: Dict[str, Any], prepared: PreparedDeskflow) -> str:
     if prepared.mode == "server":
         # Deskflow 的 INI 解析器会把反斜杠当作转义符；Windows 路径必须用正斜杠。
         external_config = str(prepared.server_config_path).replace("\\", "/")
+        clipboard_enabled = bool(_section(cfg).get("clipboard_enabled", True))
+        clipboard_size = int(_section(cfg).get("clipboard_size", 16))
         lines.extend((
             "[server]",
             "externalConfig=true",
             f"externalConfigFile={external_config}",
-            "enableClipboard=true",
+            f"enableClipboard={'true' if clipboard_enabled else 'false'}",
+            f"clipboardSize={clipboard_size}",
             "",
         ))
     else:
@@ -1049,6 +1014,8 @@ def snapshot(
         "auto_start": bool(section.get("auto_start", True)),
         "mode": mode,
         "language_sync": bool(section.get("language_sync", False)),
+        "clipboard_enabled": bool(section.get("clipboard_enabled", True)),
+        "clipboard_size": int(section.get("clipboard_size", 16)),
         "path": path or "",
         "installed": bool(path),
         "running": running,

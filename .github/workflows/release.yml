@@ -227,14 +227,13 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch ${{ github.ref_name }}：修复 macOS 升级后键鼠共享权限失效。
+            QuickSwitch ${{ github.ref_name }}：新增双向剪贴板共享、自定义切换热键，并修复切换卡顿与热键失效。
 
-            - **修复 macOS 已授权仍提示「需要权限」**：旧版 Ad-hoc 签名把 TCC 授权绑定到单次构建的 cdhash，升级后系统设置里的开关会失效；新版写入稳定的 designated requirement，后续版本不再丢授权
-            - 设置页新增「重建 macOS 授权」：清除 Accessibility / ListenEvent / PostEvent 的旧 TCC 记录，自动重启并打开系统设置；托盘菜单也可操作
-            - 命令行可执行 `/Applications/QuickSwitch.app/Contents/MacOS/QuickSwitch --reset-macos-permissions`
-            - 权限提示会明确说明「开关已打开仍报错」的处理方式，不再只重复要求授权
+            - **双向剪贴板**：键鼠共享连接后，文本、HTML 和图片可在 Windows 与 Mac 之间双向复制粘贴；默认上限 16 MB，可在设置页关闭或调整到 1-128 MB。客户端沿用 Windows 服务端设置。
+            - **自定义热键**：设置页新增热键录制，支持 Ctrl / Alt / Shift / Win 组合、F1-F12、Esc 取消和恢复默认；保存时会注销旧全局钩子并立即重新注册，修复旧热键残留和修改后不生效。
+            - **切换卡顿修复**：本机 DDC 与远端确认改为并行执行，本机成功后不再等待 macOS 端可能重试两秒的 `m1ddc`；对端确认转后台，不阻塞后续热键，新切换会取消上一笔未完成的后台确认。
             - 继续内置官方 Deskflow 1.27.0 无界面核心，Windows 自动服务端、macOS 自动客户端
-            - 保留 DDC 输入源切换、6 位配对码、配置向导、Windows 高 DPI 修复和安装包内置 Python 运行时
+            - 保留稳定的 macOS Ad-hoc 授权、DDC 输入源切换、6 位配对码、配置向导、Windows 高 DPI 修复和安装包内置 Python 运行时
             - macOS 仅支持 Apple Silicon（arm64），Windows 支持 10/11 x64
 
             安装包尚未签名：macOS 首次打开请右键 App →「打开」；Windows 如遇 SmartScreen，请选择「更多信息 → 仍要运行」。

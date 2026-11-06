@@ -74,6 +74,8 @@ DEFAULTS: Dict[str, Any] = {
         "port": 24800,                # Deskflow 键鼠共享端口（与 QuickSwitch 的 8765 不同）
         "mac_side": "left",           # Mac 屏幕在 Windows 的左侧还是右侧
         "language_sync": False,       # 默认保留 Mac 自己的输入源；避免 Deskflow 1.27 把中文布局误判为缺失
+        "clipboard_enabled": True,    # 共享文本、HTML 和图片剪贴板
+        "clipboard_size": 16,         # 单次共享上限（MiB）；Deskflow 的配置单位是 MiB
     },
     "network": {
         "ping_interval": 10.0,        # 心跳间隔
@@ -122,6 +124,74 @@ def default_config() -> Dict[str, Any]:
 def generate_pairing_code() -> str:
     """生成适合口头/手动输入的随机配对码。"""
     return "".join(secrets.choice(PAIRING_ALPHABET) for _ in range(PAIRING_CODE_LENGTH))
+
+
+HOTKEY_MODIFIER_ALIASES = {
+    "ctrl": "ctrl",
+    "control": "ctrl",
+    "alt": "alt",
+    "option": "alt",
+    "shift": "shift",
+    "win": "windows",
+    "windows": "windows",
+    "cmd": "windows",
+    "command": "windows",
+    "meta": "windows",
+    "super": "windows",
+}
+
+HOTKEY_KEY_ALIASES = {
+    "escape": "esc",
+    "return": "enter",
+    "del": "delete",
+    "ins": "insert",
+    "pgup": "pageup",
+    "pgdn": "pagedown",
+    "arrowleft": "left",
+    "arrowright": "right",
+    "arrowup": "up",
+    "arrowdown": "down",
+}
+
+HOTKEY_NAMED_KEYS = {
+    "space", "tab", "enter", "esc", "backspace", "delete", "insert",
+    "home", "end", "pageup", "pagedown", "left", "right", "up", "down",
+}
+
+HOTKEY_MODIFIER_ORDER = ("ctrl", "alt", "shift", "windows")
+
+
+def normalize_hotkey(value: Any) -> Optional[str]:
+    """把用户输入的热键规范成 keyboard/Deskflow 都能理解的固定格式。
+
+    返回 ``None`` 表示格式不受支持。为了避免设置一个会吞掉普通输入的全局热键，
+    除 F1-F12 外至少需要一个修饰键。Windows 键统一写作 ``windows``，
+    macOS 的 Command 在跨平台配置里也映射到同一个修饰键。
+    """
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    parts = [part.strip() for part in text.split("+") if part.strip()]
+    if not parts:
+        return None
+
+    modifiers = set()
+    for part in parts[:-1]:
+        modifier = HOTKEY_MODIFIER_ALIASES.get(part)
+        if not modifier:
+            return None
+        modifiers.add(modifier)
+
+    key = HOTKEY_KEY_ALIASES.get(parts[-1], parts[-1])
+    if key in HOTKEY_MODIFIER_ALIASES:
+        return None
+    if not (len(key) == 1 and key.isalnum()) and key not in HOTKEY_NAMED_KEYS:
+        if not re.fullmatch(r"f(?:[1-9]|1[0-2])", key):
+            return None
+    if not modifiers and not re.fullmatch(r"f(?:[1-9]|1[0-2])", key):
+        return None
+    ordered = [modifier for modifier in HOTKEY_MODIFIER_ORDER if modifier in modifiers]
+    return "+".join([*ordered, key])
 
 
 def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -245,12 +315,24 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
     if not isinstance(hotkeys, dict):
         raise ConfigError("hotkeys 必须是 JSON 对象")
     if role == "server":
-        if hotkeys.get("switch_to_mac") and hotkeys.get("switch_to_mac") == hotkeys.get("switch_to_win"):
-            raise ConfigError("hotkeys.switch_to_mac 与 hotkeys.switch_to_win 不能相同")
+        normalized_hotkeys: Dict[str, str] = {}
         for field in ("switch_to_mac", "switch_to_win"):
             value = hotkeys.get(field)
             if not isinstance(value, str) or not value.strip():
                 warnings.append(f"hotkeys.{field} 为空，该热键不会被注册")
+                continue
+            normalized = normalize_hotkey(value)
+            if normalized is None:
+                raise ConfigError(
+                    f"hotkeys.{field} 格式无效：{value!r}。请使用 Ctrl/Alt/Shift/Win "
+                    "组合键，例如 ctrl+alt+1；单键仅支持 F1-F12"
+                )
+            normalized_hotkeys[field] = normalized
+        if (
+            "switch_to_mac" in normalized_hotkeys
+            and normalized_hotkeys.get("switch_to_mac") == normalized_hotkeys.get("switch_to_win")
+        ):
+            raise ConfigError("hotkeys.switch_to_mac 与 hotkeys.switch_to_win 不能相同")
 
     deskflow = cfg.get("deskflow") or {}
     if not isinstance(deskflow, dict):
@@ -272,6 +354,14 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
     language_sync = deskflow.get("language_sync", False)
     if not isinstance(language_sync, bool):
         raise ConfigError(f"deskflow.language_sync 必须是布尔值，当前为 {language_sync!r}")
+    clipboard_enabled = deskflow.get("clipboard_enabled", True)
+    if not isinstance(clipboard_enabled, bool):
+        raise ConfigError(f"deskflow.clipboard_enabled 必须是布尔值，当前为 {clipboard_enabled!r}")
+    clipboard_size = deskflow.get("clipboard_size", 16)
+    if isinstance(clipboard_size, bool) or not isinstance(clipboard_size, int):
+        raise ConfigError(f"deskflow.clipboard_size 必须是整数，当前为 {clipboard_size!r}")
+    if not 1 <= clipboard_size <= 128:
+        raise ConfigError(f"deskflow.clipboard_size 必须在 1-128 MiB 之间，当前为 {clipboard_size}")
 
     peer_host = str(cfg.get("peer_host") or "").strip()
     discovery_enabled = bool((cfg.get("discovery") or {}).get("enabled"))

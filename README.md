@@ -3,7 +3,7 @@
 [![Release: latest](docs/images/badge-release.svg)](https://github.com/Jasonlya/quickswitch/releases/latest)
 [![License: MIT](docs/images/badge-license.svg)](LICENSE)
 
-一键切换**显示器输入源**和**键鼠控制权**。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows。
+一键切换**显示器输入源**和**键鼠控制权**，并在两台电脑之间双向共享**剪贴板**（文本、HTML、图片）。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows；组合键可以自行录制。
 
 ![QuickSwitch 主界面：两个切换按钮、按钮内的热键标记和折叠的信息入口](docs/images/quickstart.png)
 
@@ -51,8 +51,9 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 
 ## 日常使用
 
-- 按 `Ctrl+Alt+1`：切到 Mac；按 `Ctrl+Alt+2`：切回 Windows。
+- 按 `Ctrl+Alt+1`：切到 Mac；按 `Ctrl+Alt+2`：切回 Windows。可在「更多信息与设置 → 配置 → 热键」点「录入」重新录制，Esc 取消，点「默认」恢复。
 - QuickSwitch 启动时会自动启动内置键鼠共享核心；退出 QuickSwitch 时会一并停止它。
+- 键鼠共享连接后，任一端复制的文本、HTML 或图片可在另一端直接粘贴。设置页可开关剪贴板共享，并调整单次内容上限（默认 16 MB）。
 - 主界面两个切换按钮下方会显示「键鼠共享 · 已连接 / 等待连接 / 连接异常」；点它可直接展开键鼠共享详情。连接成功表示两端核心已经建立 TCP 连接，失败时会显示可读原因。
 - 主界面的两个切换按钮右侧会直接显示对应热键；在 Mac 上会标注「Windows 键盘」，因为热键由连接键鼠的 Windows 服务端注册，macOS 本机不注册。
 - 切换热键会自动写入键鼠共享配置，一次按键同时切换显示器和键鼠，不需要再去 Deskflow 里重复设置。
@@ -79,6 +80,9 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 | Mac 已授权、重启后仍提示「需要权限」 | 升级到 `v2.0.5`。旧版 Ad-hoc 签名把授权绑在单次构建的 cdhash 上，换版本后系统设置里的开关会失效。新版已改为稳定签名；升级后展开「更多信息与设置 → 键鼠共享」，点「重建 macOS 授权」，再在系统设置里重新打开「辅助功能」和「输入监控」 |
 | Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`，先做不改变画面的写入自检；输出会包含具体 WinError 和处理建议 |
 | 键鼠共享没有启动 | 点主界面的「键鼠共享」状态入口查看可读结论；也可运行 `--deskflow-status` 确认 `installed`、`bundled`、`running`、`connected` 和 `last_error`。确认 `deskflow.auto_start` 开启；只有强制使用其它路径时才需要设置 `deskflow.path` |
+| 剪贴板没有同步 | 先确认键鼠共享显示「已连接」，再在「配置 → 键鼠共享」确认「共享剪贴板」已勾选。复制内容不能超过「剪贴板上限」；客户端沿用 Windows 端上限。修改后保存会自动重启共享核心 |
+| 自定义热键不生效 | 热键由连接键鼠的 Windows 端注册。在 Windows 的「配置 → 热键」录制后点保存，旧组合键会立即注销；若提示格式无效，请至少按一个 Ctrl/Alt/Shift/Win 修饰键，或使用 F1-F12。修改后 Deskflow 会自动重启 |
+| 从 Mac 切回 Windows 时卡顿、热键一段时间没反应 | 已改为本机 DDC 与远端确认并行：本机成功后立即释放热键，远端仅后台确认，不再等待 macOS 上可能失败重试的 `m1ddc`。升级后重启 QuickSwitch |
 | 显示器切了但键鼠没过去 | 先点「重启键鼠共享」；确认两端 QuickSwitch 都在运行且键鼠共享状态为「已连接」。Windows 安装包会自动放行 TCP `24800`，macOS 需授予辅助功能/输入监控/本地网络权限。若显示「需要权限」或日志出现 `assistive devices does not trust this process` / `failed to create quartz event tap`，在系统设置中允许 QuickSwitch、Deskflow 或 deskflow-core，再重启核心 |
 | 想查看日志 | macOS：`~/.quickswitch/quickswitch.log`；Windows：`%USERPROFILE%\.quickswitch\quickswitch.log` |
 | 想卸载 | macOS 删除「应用程序」里的 QuickSwitch；Windows 用「设置 → 应用 → QuickSwitch → 卸载」。用户配置默认保留 |
@@ -94,8 +98,8 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v2.0.5
-git push origin v2.0.5
+git tag v2.1.0
+git push origin v2.1.0
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

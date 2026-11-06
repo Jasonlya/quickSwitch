@@ -78,6 +78,8 @@ EDITABLE: Dict[str, Any] = {
         "port": None,
         "mac_side": None,
         "language_sync": None,
+        "clipboard_enabled": None,
+        "clipboard_size": None,
     },
     "ddc": {
         "monitor_id": None,
@@ -311,6 +313,8 @@ class WebConsole:
             },
             "role": cfg.get("role"),
             "state": quick.state,
+            "switching": bool(quick.switching),
+            "switch_target": quick.switch_target,
             "dry_run": bool(app.dry_run),
             "setup": {
                 "completed": bool((cfg.get("setup") or {}).get("completed", False)),

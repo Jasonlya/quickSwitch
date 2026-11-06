@@ -169,8 +169,9 @@ deskflow-co 4321 user   43u  IPv4 0x5678      0t0  TCP *:24800 (LISTEN)
 class HotkeyTests(unittest.TestCase):
     def test_converts_keyboard_combo(self) -> None:
         self.assertEqual(deskflow_bridge._hotkey_to_deskflow("Ctrl+Alt+1"), "control+alt+1")
-        self.assertEqual(deskflow_bridge._hotkey_to_deskflow("cmd+shift+space"), "super+shift+space")
+        self.assertEqual(deskflow_bridge._hotkey_to_deskflow("cmd+shift+space"), "shift+super+space")
         self.assertEqual(deskflow_bridge._hotkey_to_deskflow("ctrl+f12"), "control+f12")
+        self.assertEqual(deskflow_bridge._hotkey_to_deskflow("windows+1"), "super+1")
 
     def test_rejects_unsupported(self) -> None:
         self.assertIsNone(deskflow_bridge._hotkey_to_deskflow("hyper+1"))
@@ -214,6 +215,16 @@ class ConfigTests(unittest.TestCase):
         external_config = str(item.server_config_path).replace("\\", "/")
         self.assertIn(f"externalConfigFile={external_config}", text)
         self.assertIn("enableClipboard=true", text)
+        self.assertIn("clipboardSize=16", text)
+
+    def test_clipboard_settings_are_configurable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            item = prepared(tmp, mode="server")
+            text = deskflow_bridge.render_settings(
+                self.cfg(role="server", clipboard_enabled=False, clipboard_size=32), item
+            )
+        self.assertIn("enableClipboard=false", text)
+        self.assertIn("clipboardSize=32", text)
 
     def test_server_settings_escape_windows_path_for_ini_parser(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -249,6 +260,14 @@ class ConfigTests(unittest.TestCase):
         text = deskflow_bridge.render_server_config(cfg)
         self.assertNotIn("switchToScreen(quickswitch-client)", text)
         self.assertIn("switchToScreen(quickswitch-server)", text)
+
+    def test_custom_hotkey_is_written_to_server_layout(self) -> None:
+        cfg = self.cfg()
+        cfg["hotkeys"]["switch_to_mac"] = "ctrl+shift+f8"
+        text = deskflow_bridge.render_server_config(cfg)
+        self.assertIn(
+            "keystroke(control+shift+f8) = switchToScreen(quickswitch-client)", text
+        )
 
     def test_prepare_writes_client_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

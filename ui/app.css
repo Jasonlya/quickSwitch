@@ -885,6 +885,36 @@ input[type="checkbox"] {
 .config-field[data-dirty="true"] select,
 .config-field[data-dirty="true"] textarea { border-color: var(--accent); }
 
+.hotkey-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.hotkey-input-row input { min-width: 0; }
+.hotkey-input-row input[data-recording="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.config-mini {
+  min-height: 31px;
+  padding: 4px 9px;
+  border: 1px solid var(--separator-strong);
+  border-radius: 8px;
+  background: var(--surface-solid);
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.config-mini:hover { background: var(--fill); }
+.config-mini[data-recording="true"] { border-color: var(--accent); color: var(--accent); }
+.config-mini-quiet { color: var(--muted); }
+
 .checkbox-field { display: flex; align-items: center; gap: 8px; padding-top: 5px; }
 .checkbox-field input { width: auto; }
 

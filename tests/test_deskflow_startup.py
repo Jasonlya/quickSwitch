@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+import sys
 from unittest import mock
 
 from main import QuickSwitchApp
@@ -161,6 +162,25 @@ class DeskflowStartupTests(unittest.TestCase):
             self.assertTrue(app.apply_live_config(["hotkeys.switch_to_mac"]))
         app._setup_hotkeys.assert_called_once()
         restart.assert_called_once()
+
+    def test_hotkey_reregistration_unhooks_old_combinations(self) -> None:
+        app = object.__new__(QuickSwitchApp)
+        app.cfg = {
+            "role": "server",
+            "hotkeys": {"switch_to_mac": "Ctrl+Alt+1", "switch_to_win": "ctrl+alt+2"},
+        }
+        app._keyboard = None
+        app.hotkeys_registered = False
+        app.hotkeys_reason = ""
+        fake = mock.Mock()
+        with mock.patch.dict(sys.modules, {"keyboard": fake}):
+            QuickSwitchApp._setup_hotkeys(app)
+            app.cfg["hotkeys"]["switch_to_mac"] = "ctrl+shift+f8"
+            QuickSwitchApp._setup_hotkeys(app)
+        self.assertEqual(fake.unhook_all_hotkeys.call_count, 2)
+        registered = [call.args[0] for call in fake.add_hotkey.call_args_list]
+        self.assertEqual(registered, ["ctrl+alt+1", "ctrl+alt+2", "ctrl+shift+f8", "ctrl+alt+2"])
+        self.assertTrue(app.hotkeys_registered)
 
     def test_refresh_keeps_last_failure_detail(self) -> None:
         app = make_app(True)

@@ -157,6 +157,21 @@ class TwoNodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.server.trigger("mac"))
         self.assertEqual(self.ddc_server.calls, ["mac"])
 
+    async def test_local_switch_is_not_blocked_by_slow_peer_ack(self) -> None:
+        async def slow_peer(_target: str) -> bool:
+            await asyncio.sleep(2.0)
+            return True
+
+        self.server._notify_peer = slow_peer  # type: ignore[method-assign]
+        started = time.monotonic()
+        self.assertTrue(await self.server.trigger("mac"))
+        elapsed = time.monotonic() - started
+        self.assertEqual(self.ddc_server.calls, ["mac"])
+        self.assertLess(elapsed, 0.8)
+        self.assertIsNotNone(self.server._remote_task)
+        self.server._remote_task.cancel()
+        await asyncio.sleep(0)
+
 
 class TriggerEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def test_trigger_without_peer_uses_local_ddc(self) -> None:

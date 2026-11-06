@@ -202,6 +202,9 @@ class WebConsoleTests(unittest.TestCase):
         self.assertFalse(payload["peer"]["connected"])
         self.assertFalse(payload["discovery"]["enabled"])
         self.assertFalse(payload["hotkeys"]["registered"])
+        self.assertTrue(payload["deskflow"]["clipboard_enabled"])
+        self.assertEqual(payload["deskflow"]["clipboard_size"], 16)
+        self.assertFalse(payload["switching"])
         self.assertIsNone(payload["input"]["value"])
 
     def test_read_input_updates_cache(self) -> None:
@@ -278,7 +281,10 @@ class WebConsoleTests(unittest.TestCase):
     def test_deskflow_config_save_applies_without_full_restart(self) -> None:
         status, payload, _ = self.request(
             "POST", "/api/config",
-            {"values": {"deskflow": {"port": 24999, "mac_side": "right"}}},
+            {"values": {"deskflow": {
+                "port": 24999, "mac_side": "right",
+                "clipboard_enabled": False, "clipboard_size": 32,
+            }}},
             token=self.token,
         )
         self.assertEqual(status, 200)
@@ -287,6 +293,32 @@ class WebConsoleTests(unittest.TestCase):
         self.assertFalse(payload["restart_required"])
         self.assertEqual(self.app.cfg["deskflow"]["port"], 24999)
         self.assertEqual(self.app.cfg["deskflow"]["mac_side"], "right")
+        self.assertFalse(self.app.cfg["deskflow"]["clipboard_enabled"])
+        self.assertEqual(self.app.cfg["deskflow"]["clipboard_size"], 32)
+        on_disk = json.loads(self.config_file.read_text(encoding="utf-8"))
+        self.assertFalse(on_disk["deskflow"]["clipboard_enabled"])
+        self.assertEqual(on_disk["deskflow"]["clipboard_size"], 32)
+
+    def test_custom_hotkey_save_is_validated(self) -> None:
+        status, payload, _ = self.request(
+            "POST", "/api/config",
+            {"values": {"hotkeys": {
+                "switch_to_mac": "ctrl+shift+f8",
+                "switch_to_win": "ctrl+alt+2",
+            }}},
+            token=self.token,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["live_applied"])
+        self.assertEqual(self.app.cfg["hotkeys"]["switch_to_mac"], "ctrl+shift+f8")
+
+        status, payload, _ = self.request(
+            "POST", "/api/config",
+            {"values": {"hotkeys": {"switch_to_mac": "a"}}},
+            token=self.token,
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("格式无效", payload["error"])
 
     def test_setup_completion_is_persisted_without_restart(self) -> None:
         body = {"values": {
