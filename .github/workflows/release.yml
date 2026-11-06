@@ -139,8 +139,20 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: QuickSwitch ${{ github.ref_name }}
+          body: |
+            QuickSwitch 首个正式版本。
+
+            - 首次启动自动进入「连接 → 安全 → 显示器 → 完成」四步配置向导
+            - macOS 仅支持 Apple Silicon（arm64），不提供 Intel Mac 安装包
+            - Windows 10/11 x64 安装包
+            - 应用内原生设置窗口，不再默认打开浏览器标签页
+            - 内置 Python 运行时，目标电脑不需要安装 Python 或依赖
+
+            安装包尚未签名：macOS 首次打开请右键 App →「打开」；Windows 如遇 SmartScreen，请选择「更多信息 → 仍要运行」。
+
+            安装与使用说明见仓库根目录 `INSTALL.md`。
           files: |
             artifacts/**/*
             INSTALL.md
-          generate_release_notes: true
+          generate_release_notes: false
           fail_on_unmatched_files: true
