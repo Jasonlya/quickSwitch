@@ -145,8 +145,35 @@ function renderOwnership(status) {
   }
 }
 
+function switchSummary(status, target) {
+  const owner = status.input && status.input.target;
+  const parts = [owner ? "当前：" + LABEL[owner] : "当前输入源未知"];
+  if (status.peer) parts.push(status.peer.connected ? "对端已连接" : "对端未连接");
+  if (status.auth) {
+    if (!status.auth.enabled) parts.push("未设置预共享密钥");
+    else if (!status.auth.authenticated) parts.push("密钥校验未通过");
+  }
+  if (status.ddc && !status.ddc.tool_ok) parts.push("DDC 工具不可用");
+  const hotkey = status.hotkeys &&
+    status.hotkeys[target === "mac" ? "switch_to_mac" : "switch_to_win"];
+  if (hotkey) parts.push("快捷键 " + hotkey);
+  return "切到 " + LABEL[target] + "\n" + parts.join(" · ");
+}
+
+function renderSwitchboard(status) {
+  const owner = status.input && status.input.target;
+  for (const target of ["mac", "win"]) {
+    const button = $(target === "mac" ? "btnMac" : "btnWin");
+    const summary = switchSummary(status, target);
+    button.title = summary;
+    button.setAttribute("aria-label", summary.replace(/\n/g, "，"));
+    button.dataset.current = owner === target && !pendingTarget ? "true" : "false";
+  }
+}
+
 function renderStatus(status) {
   lastStatus = status;
+  renderSwitchboard(status);
   $("metaHost").textContent = text(status.host.name);
   $("metaPlatform").textContent = text(status.host.platform);
   $("metaVersion").textContent = text(status.version);
@@ -233,26 +260,29 @@ function renderStatus(status) {
 }
 
 /* ---------------------------------------------------------------- 操作 */
-function busy(on, message) {
+function busy(on, message, stateId = "runState") {
   for (const id of ["btnMac", "btnWin", "btnRead", "btnProbe", "btnSave"]) {
     $(id).disabled = on;
   }
-  const state = $("runState");
+  const state = $(stateId);
   state.dataset.busy = on ? "true" : "false";
   if (message !== undefined) state.textContent = message;
 }
 
 async function switchTo(target) {
   pendingTarget = target;
-  if (lastStatus) renderOwnership(lastStatus);
-  busy(true, "切换中：→ " + LABEL[target] + " …");
+  if (lastStatus) {
+    renderOwnership(lastStatus);
+    renderSwitchboard(lastStatus);
+  }
+  busy(true, "切换中：→ " + LABEL[target] + " …", "runState");
   try {
     const result = await api("/api/switch", { method: "POST", body: { target } });
     busy(false, result.ok
       ? "已完成：→ " + LABEL[target] + "（本机 DDC 或对端 DDC 至少一侧确认成功）"
-      : "未确认：→ " + LABEL[target] + "，详见事件日志");
+      : "未确认：→ " + LABEL[target] + "，详见事件日志", "runState");
   } catch (error) {
-    busy(false, "切换失败：" + error.message);
+    busy(false, "切换失败：" + error.message, "runState");
     notify(String(error.message), "error");
   } finally {
     pendingTarget = null;
@@ -262,14 +292,15 @@ async function switchTo(target) {
 }
 
 async function readInput() {
-  busy(true, "读取中：正在执行读取命令 …");
+  busy(true, "读取中：正在执行读取命令 …", "toolState");
   try {
     const result = await api("/api/read-input", { method: "POST", body: {} });
     busy(false, result.value === null || result.value === undefined
       ? "读取不到当前输入源（工具不支持回读，或显示器未响应）"
-      : "当前输入源：" + result.value + "（" + (LABEL[result.target] || "未匹配 mac_input / win_input") + "）");
+      : "当前输入源：" + result.value + "（" + (LABEL[result.target] || "未匹配 mac_input / win_input") + "）",
+      "toolState");
   } catch (error) {
-    busy(false, "读取失败：" + error.message);
+    busy(false, "读取失败：" + error.message, "toolState");
   }
   await refreshStatus();
 }
@@ -286,18 +317,19 @@ async function probeInputs() {
     body.candidates = values;
   }
   const started = Date.now();
-  busy(true, "探测中：逐个试探候选值并回读确认，显示器会闪几次 …");
+  busy(true, "探测中：逐个试探候选值并回读确认，显示器会闪几次 …", "toolState");
   const ticker = setInterval(() => {
-    $("runState").textContent =
+    $("toolState").textContent =
       "探测中：已用 " + Math.round((Date.now() - started) / 1000) + " 秒，请等显示器稳定 …";
   }, 1000);
   try {
     const result = await api("/api/probe-inputs", { method: "POST", body });
     const found = result.available || [];
     busy(false, "探测完成：接受 " + found.length + " 个取值" +
-      (found.length ? "（" + found.join(", ") + "）" : "") + "，已恢复原输入源");
+      (found.length ? "（" + found.join(", ") + "）" : "") + "，已恢复原输入源",
+      "toolState");
   } catch (error) {
-    busy(false, "探测失败：" + error.message);
+    busy(false, "探测失败：" + error.message, "toolState");
   } finally {
     clearInterval(ticker);
   }

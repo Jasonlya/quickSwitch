@@ -50,8 +50,8 @@
 
 下载时按芯片选择：
 
-- Apple 芯片（M1/M2/M3/M4）：`QuickSwitch-1.2.0-macOS-arm64.dmg`
-- Intel 芯片：`QuickSwitch-1.2.0-macOS-x64.dmg`
+- Apple 芯片（M1/M2/M3/M4）：`QuickSwitch-1.2.1-macOS-arm64.dmg`
+- Intel 芯片：`QuickSwitch-1.2.1-macOS-x64.dmg`
 - 不确定时，在终端运行 `uname -m`：`arm64` 选 arm64，`x86_64` 选 x64。
 
 安装步骤：
@@ -71,7 +71,7 @@
 
 ### 2.2 Windows（推荐安装包）
 
-1. 下载并双击 `QuickSwitch-Setup-1.2.0.exe`，在 UAC 提示中点「是」。
+1. 下载并双击 `QuickSwitch-Setup-1.2.1.exe`，在 UAC 提示中点「是」。
 2. 未签名版本首次运行可能弹 SmartScreen：点「更多信息」→「仍要运行」。
 3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765，并写入卸载入口。
 4. 从桌面或开始菜单启动 QuickSwitch；首次运行会自动打开设置页面。
@@ -124,7 +124,7 @@ Windows 可以直接双击 `scripts\quickstart-windows.bat`（保留控制台日
 python main.py --init-config
 ```
 
-也可以直接在网页控制台「配置」区块里改（只允许改白名单字段），省得手动编辑 JSON。
+也可以直接在网页控制台点「更多信息与设置」→「配置」区块里改（只允许改白名单字段），省得手动编辑 JSON。
 
 ### 3.2 先填这三项
 
@@ -132,7 +132,7 @@ python main.py --init-config
 | --- | --- | --- |
 | `peer_host` | 对端局域网 IP，如 `192.168.1.101` | 也可设 `"auto"` 开局域网自动发现 |
 | `role` | Windows 填 `server`，macOS 填 `client` | 首次常驻启动会按系统自动选好；只有 `server` 注册全局热键 |
-| `auth.secret` | 两端填同一个 16 位以上的随机字符串 | 在设置页「安全」区块填写；两端必须一致，保存后重启 |
+| `auth.secret` | 两端填同一个 16 位以上的随机字符串 | 在「更多信息与设置 → 配置 → 安全」区块填写；两端必须一致，保存后重启 |
 | `listen_port` / `peer_port` | 两端都用 `8765` | 两边必须一致，且防火墙要放行 |
 
 设置页「连接」区块会显示本机局域网 IP；把它填到**另一台电脑**的「对端地址」里。
@@ -175,7 +175,7 @@ python3 main.py --gen-secret
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.0）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.1）
 密钥校验     : 已通过（hmac-sha256）
 DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 ```
@@ -209,8 +209,9 @@ DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 - 成品包没有控制台窗口，去 `~/.quickswitch/quickswitch.log` 里找最后一条
   `Web 控制台已启动：...`，把整条地址粘进浏览器。
 
-页面上能：切到 Mac / Windows、读取当前输入源、探测输入源、看连接与密钥校验状态、
-看 DDC 命令原文、改白名单配置、看事件日志。地址里的 `?t=` 不要发给别人。
+主页面只保留「切到 Mac / Windows」两个按钮；鼠标停在按钮上会显示当前输入源、对端连接、
+密钥校验、DDC 和快捷键摘要。点「更多信息与设置」后，才能读取/探测输入源、查看连接与
+DDC 命令原文、修改白名单配置和查看事件日志。地址里的 `?t=` 不要发给别人。
 
 ### 4.3 和 Deskflow 配合
 

@@ -77,7 +77,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（1.2.0.0）
+    version_info.txt        Windows exe 的版本资源（1.2.1.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   scripts/
@@ -264,8 +264,10 @@ python main.py --log-level DEBUG
 
 | 区块 | 内容 |
 | --- | --- |
+| 主界面 | 只显示「切到 Mac」「切到 Windows」两个大按钮；按钮悬停提示当前输入源、对端连接、密钥校验、DDC 与快捷键摘要；当前持有方以蓝色顶部边线标记 |
+| 更多信息与设置 | 默认折叠；展开后包含运行概况、显示器所有权、诊断工具、连接、显示器 DDC、热键、配置与事件日志 |
 | 显示器所有权 | 两台机器分列一条发丝栅格的两端，蓝色块停在当前持有方；切换时蓝块沿栅格滑动，两端数字（`ddc.mac_input` / `ddc.win_input`）用等宽字形跟着换色 |
-| 操作 | 切到 Mac / 切到 Windows / 读取当前输入源 / 探测输入源（可自定义候选值，留空用内置候选集） |
+| 诊断工具 | 读取当前输入源 / 探测输入源（可自定义候选值，留空用内置候选集） |
 | 连接 | 角色、监听端口、最近切换目标、对端地址与连接状态、对端身份、对端密钥校验结果、自动发现到的设备 |
 | 显示器 DDC | 工具路径与可用性、按当前配置拼好的三条命令行（可直接复制到终端核对）、Mac/Windows 取值、当前输入源与上次读取时间 |
 | 热键 | 组合键、是否注册成功、失败原因（例如未安装 `keyboard`、缺少管理员权限） |
@@ -312,7 +314,7 @@ python3 main.py --gen-secret
 
 ```
 python3 main.py --status
-  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.0）
+  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.1）
   密钥校验     : 已通过（hmac-sha256）
 ```
 
@@ -344,8 +346,8 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe`（**单文件**，自带 Python 运行时与 `ui/`） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.2.0`），
-spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.2.0.0`），不会两处漂移。
+两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.2.1`），
+spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.2.1.0`），不会两处漂移。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Klein Blue 圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
 
@@ -373,7 +375,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-1.2.0.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-1.2.1.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -424,22 +426,22 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 
 ```bash
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-1.2.0-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-1.2.1-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=1.2.0 packaging\installer.nsi
+makensis /DVERSION=1.2.1 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后自动构建
 macOS `arm64` / `x64` 两个 DMG 和 Windows Setup，并创建 GitHub Release、上传 `SHA256SUMS.txt` 与 `INSTALL.md`。
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.1
+git push origin v1.2.1
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，

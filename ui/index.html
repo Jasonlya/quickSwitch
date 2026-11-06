@@ -11,22 +11,53 @@
 
   <header class="masthead">
     <div class="masthead-mark">
+      <span class="masthead-kicker">QUICKSWITCH</span>
       <h1>QuickSwitch</h1>
-      <p class="masthead-note">显示器输入源与键鼠控制权的一键切换。页面上的每个数字都来自本机运行中的进程。</p>
+      <p class="masthead-note">切换显示器输入源与键鼠控制权。</p>
     </div>
-    <dl class="masthead-meta">
-      <div><dt>主机</dt><dd id="metaHost">—</dd></div>
-      <div><dt>平台</dt><dd id="metaPlatform">—</dd></div>
-      <div><dt>本机版本</dt><dd id="metaVersion">—</dd></div>
-      <div><dt>采样时间</dt><dd id="metaSampled" class="num">—</dd></div>
-    </dl>
   </header>
 
   <div class="notice" id="notice" hidden></div>
 
-  <section class="section" id="ownership">
+  <main class="switchboard" aria-label="显示器和键鼠切换">
+    <div class="switch-actions">
+      <button type="button" class="switch-button" id="btnMac" data-target="mac">
+        <span class="switch-target">Mac</span>
+        <span class="switch-go">切到 Mac <span aria-hidden="true">→</span></span>
+      </button>
+      <button type="button" class="switch-button" id="btnWin" data-target="win">
+        <span class="switch-target">Windows</span>
+        <span class="switch-go">切到 Windows <span aria-hidden="true">→</span></span>
+      </button>
+    </div>
+    <p class="run-state" id="runState" aria-live="polite"></p>
+  </main>
+
+  <details class="advanced" id="advanced">
+    <summary>
+      <span>更多信息与设置</span>
+      <span class="summary-hint">连接、DDC、配置与日志</span>
+    </summary>
+    <div class="advanced-body">
+
+  <section class="section" id="overview">
     <div class="section-head">
       <span class="folio num">01</span>
+      <h2>运行概况</h2>
+    </div>
+    <div class="section-body">
+      <dl class="masthead-meta">
+        <div><dt>主机</dt><dd id="metaHost">—</dd></div>
+        <div><dt>平台</dt><dd id="metaPlatform">—</dd></div>
+        <div><dt>本机版本</dt><dd id="metaVersion">—</dd></div>
+        <div><dt>采样时间</dt><dd id="metaSampled" class="num">—</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="section" id="ownership">
+    <div class="section-head">
+      <span class="folio num">02</span>
       <h2>显示器所有权</h2>
       <p class="section-note">蓝色块停在哪一侧，显示器信号源就在哪一侧。</p>
     </div>
@@ -53,13 +84,11 @@
 
   <section class="section" id="controls">
     <div class="section-head">
-      <span class="folio num">02</span>
-      <h2>操作</h2>
+      <span class="folio num">03</span>
+      <h2>诊断工具</h2>
     </div>
     <div class="section-body">
       <div class="controls">
-        <button type="button" class="action" id="btnMac">切到 Mac</button>
-        <button type="button" class="action" id="btnWin">切到 Windows</button>
         <button type="button" class="action action-quiet" id="btnRead">读取当前输入源</button>
         <button type="button" class="action action-quiet" id="btnProbe">探测输入源</button>
       </div>
@@ -68,13 +97,13 @@
         <input type="text" id="probeCandidates" placeholder="—" autocomplete="off">
         <span class="hint">留空使用内置候选集：<span id="probeDefault" class="num">—</span></span>
       </div>
-      <p class="run-state" id="runState">空闲</p>
+      <p class="run-state" id="toolState" aria-live="polite"></p>
     </div>
   </section>
 
   <section class="section" id="link">
     <div class="section-head">
-      <span class="folio num">03</span>
+      <span class="folio num">04</span>
       <h2>连接</h2>
     </div>
     <div class="section-body">
@@ -87,7 +116,7 @@
 
   <section class="section" id="ddc">
     <div class="section-head">
-      <span class="folio num">04</span>
+      <span class="folio num">05</span>
       <h2>显示器 DDC</h2>
       <p class="section-note">命令行按当前配置拼好，可直接复制到终端核对。</p>
     </div>
@@ -99,7 +128,7 @@
 
   <section class="section" id="hotkeys">
     <div class="section-head">
-      <span class="folio num">05</span>
+      <span class="folio num">06</span>
       <h2>热键</h2>
     </div>
     <div class="section-body">
@@ -109,7 +138,7 @@
 
   <section class="section" id="config">
     <div class="section-head">
-      <span class="folio num">06</span>
+      <span class="folio num">07</span>
       <h2>配置</h2>
       <p class="section-note">第一次使用只需改三处：<strong>对端地址</strong>（另一台电脑的局域网 IP，见上方「本机 IP」对照填写）、<strong>角色</strong>（Windows 选 server，macOS 选 client）、<strong>预共享密钥</strong>（两端填同一个值，在下方「安全」区块）。保存后退出并重新打开 QuickSwitch 生效；其余留默认即可。</p>
     </div>
@@ -125,7 +154,7 @@
 
   <section class="section" id="events">
     <div class="section-head">
-      <span class="folio num">07</span>
+      <span class="folio num">08</span>
       <h2>事件</h2>
       <p class="section-note">运行中进程的日志尾部，倒序排列。</p>
     </div>
@@ -143,6 +172,9 @@
     <p>控制台只监听 127.0.0.1，令牌在地址栏的 <code>?t=</code> 里；关掉这个页面不影响后台运行。</p>
     <p id="footerState">—</p>
   </footer>
+
+    </div>
+  </details>
 
 </div>
 <script src="app.js"></script>

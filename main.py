@@ -47,7 +47,7 @@ from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 TARGETS = ("mac", "win")
 
 

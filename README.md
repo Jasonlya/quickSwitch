@@ -5,7 +5,7 @@
 
 一键切换**显示器输入源**和**键鼠控制权**。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows。
 
-![QuickSwitch 设置页面](docs/images/quickstart.png)
+![QuickSwitch 主界面：两个切换按钮和折叠的信息入口](docs/images/quickstart.png)
 
 ## 下载安装
 
@@ -13,9 +13,9 @@
 
 | 你的电脑 | 下载文件 | 安装方法 |
 | --- | --- | --- |
-| Mac（Apple 芯片 M1/M2/M3/M4） | `QuickSwitch-1.2.0-macOS-arm64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
-| Mac（Intel 芯片） | `QuickSwitch-1.2.0-macOS-x64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
-| Windows 10/11 64 位 | `QuickSwitch-Setup-1.2.0.exe` | 双击安装，按提示下一步即可 |
+| Mac（Apple 芯片 M1/M2/M3/M4） | `QuickSwitch-1.2.1-macOS-arm64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
+| Mac（Intel 芯片） | `QuickSwitch-1.2.1-macOS-x64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
+| Windows 10/11 64 位 | `QuickSwitch-Setup-1.2.1.exe` | 双击安装，按提示下一步即可 |
 
 安装包已经自带 Python 运行时、托盘依赖和网页设置页，目标电脑不需要开发环境。
 
@@ -35,8 +35,8 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 ## 首次配置
 
 1. 两台电脑都安装 QuickSwitch，然后启动它。
-2. 首次启动会自动打开设置页面。如果没有自动打开：菜单栏或任务栏托盘右键 QuickSwitch →「打开设置页面」。
-3. 在「配置」里填写三项，然后点保存：
+2. 首次启动会自动在浏览器打开控制台。如果没有自动打开：菜单栏或任务栏托盘右键 QuickSwitch →「打开设置页面」。
+3. 主界面只显示切换按钮；点「更多信息与设置」→「配置」，填写下面三项后保存：
 
    | 设置项 | 怎么填 |
    | --- | --- |
@@ -47,15 +47,16 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
    监听端口保持默认 `8765`，两端必须一致。
 
 4. 保存后，右键托盘图标 →「退出」，再重新打开 QuickSwitch，让地址、角色和密钥生效。
-5. 如果 DDC 工具放在非默认位置，在「配置」里改成实际路径；路径不确定时，可以先点「探测输入源」，按提示识别 Mac 和 Windows 对应的输入源数值。
-6. 在两端「连接」区域看到对端已连接、密钥校验通过，就配置好了。
+5. 如果 DDC 工具放在非默认位置，在「更多信息与设置 → 配置」里改成实际路径；路径不确定时，展开后点「探测输入源」，按提示识别 Mac 和 Windows 对应的输入源数值。
+6. 展开「更多信息与设置」，在两端「连接」区域看到对端已连接、密钥校验通过，就配置好了。
 
 ## 日常使用
 
 - 按 `Ctrl+Alt+1`：切到 Mac；按 `Ctrl+Alt+2`：切回 Windows。
 - Deskflow 里也要把热键配成同一组，这样一次按键会同时切换显示器和键鼠。
 - 也可以右键菜单栏/托盘图标，选择「切到 Mac」或「切到 Windows」。
-- 设置页面还能手动切换、读取当前输入源、查看连接状态和日志。
+- 主界面只保留两个切换按钮。把鼠标停在按钮上，可查看当前输入源、对端连接、密钥校验、DDC 和快捷键摘要。
+- 需要读取/探测输入源、检查连接、修改配置或查看日志时，点「更多信息与设置」展开完整面板。
 
 ## 常见问题
 
@@ -80,8 +81,8 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.1
+git push origin v1.2.1
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。
