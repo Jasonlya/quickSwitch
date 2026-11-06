@@ -70,6 +70,7 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 | Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包的回退路径。最新版使用 Windows 内置 DXVA2，不需要该文件；升级后重试，ControlMyMonitor 仅作为可选回退 |
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高版本；该版本启用 Per-Monitor V2 DPI 感知。升级后仍模糊时，检查 Windows 显示缩放并更新 WebView2 Runtime |
 | Windows 启动时终端窗口闪动 | 升级到 `v2.0.1` 或更高版本；旧版轮询核心状态时会短暂创建控制台窗口，新版已统一隐藏这些子进程窗口 |
+| Windows 托盘能打开但设置窗口不显示 | `v2.0.1` 的窗口子进程误继承了 `SW_HIDE`。升级到 `v2.0.2` 或更高版本；新版只隐藏控制台，不再隐藏 WebView 设置窗口 |
 | Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`，先做不改变画面的写入自检；输出会包含具体 WinError 和处理建议 |
 | 键鼠共享没有启动 | 点主界面的「键鼠共享」状态入口查看可读结论；也可运行 `--deskflow-status` 确认 `installed`、`bundled`、`running`、`connected` 和 `last_error`。确认 `deskflow.auto_start` 开启；只有强制使用其它路径时才需要设置 `deskflow.path` |
 | 显示器切了但键鼠没过去 | 先点「重启键鼠共享」；确认两端 QuickSwitch 都在运行且键鼠共享状态为「已连接」。Windows 安装包会自动放行 TCP `24800`，macOS 需授予辅助功能/输入监控/本地网络权限。若显示「需要权限」或日志出现 `assistive devices does not trust this process` / `failed to create quartz event tap`，在系统设置中允许 QuickSwitch、Deskflow 或 deskflow-core，再重启核心 |
@@ -87,8 +88,8 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v2.0.1
-git push origin v2.0.1
+git tag v2.0.2
+git push origin v2.0.2
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

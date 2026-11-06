@@ -21,6 +21,15 @@ class SilentProcessTests(unittest.TestCase):
         self.assertEqual(process_utils.silent_subprocess_kwargs(system="Darwin"), {})
         self.assertEqual(process_utils.silent_subprocess_kwargs(system="Linux"), {})
 
+    def test_windowed_process_hides_console_but_not_gui_window(self) -> None:
+        kwargs = process_utils.windowed_subprocess_kwargs(system="Windows")
+        self.assertTrue(kwargs["creationflags"] & process_utils.CREATE_NO_WINDOW)
+        self.assertNotIn("startupinfo", kwargs)
+
+    def test_windowed_process_is_plain_outside_windows(self) -> None:
+        self.assertEqual(process_utils.windowed_subprocess_kwargs(system="Darwin"), {})
+        self.assertEqual(process_utils.windowed_subprocess_kwargs(system="Linux"), {})
+
 
 if __name__ == "__main__":
     unittest.main()

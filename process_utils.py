@@ -42,3 +42,20 @@ def silent_subprocess_kwargs(
         startupinfo.wShowWindow = int(getattr(subprocess, "SW_HIDE", SW_HIDE))
         kwargs["startupinfo"] = startupinfo
     return kwargs
+
+
+def windowed_subprocess_kwargs(*, system: Optional[str] = None) -> Dict[str, Any]:
+    """返回启动 GUI 子进程时使用的参数。
+
+    不能复用 :func:`silent_subprocess_kwargs`：其中的 ``wShowWindow=SW_HIDE``
+    会让 Windows 把子进程创建的 WebView 主窗口也隐藏，表现为设置窗口打不开。
+    ``CREATE_NO_WINDOW`` 只抑制控制台，不影响 GUI 窗口。
+    """
+    system = system or platform.system()
+    if system != "Windows":
+        return {}
+    return {
+        "creationflags": int(
+            getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)
+        )
+    }

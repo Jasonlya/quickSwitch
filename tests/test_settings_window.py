@@ -167,7 +167,7 @@ class SettingsWindowTests(unittest.TestCase):
             self.assertFalse(window.open())
             popen.assert_not_called()
 
-    def test_window_process_is_spawned_without_console(self) -> None:
+    def test_window_process_is_spawned_without_console_or_hidden_gui(self) -> None:
         process = _Process()
         window = settings_window.SettingsWindow("http://127.0.0.1:8767/")
         with mock.patch.object(settings_window, "webview_available", return_value=True), \
@@ -175,6 +175,7 @@ class SettingsWindowTests(unittest.TestCase):
                 mock.patch.object(settings_window.subprocess, "Popen", return_value=process) as popen:
             self.assertTrue(window.open())
         self.assertTrue(popen.call_args.kwargs["creationflags"] & 0x08000000)
+        self.assertNotIn("startupinfo", popen.call_args.kwargs)
 
 
 if __name__ == "__main__":

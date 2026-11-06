@@ -215,7 +215,7 @@ python3 main.py --gen-secret
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=2.0.1）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=2.0.2）
 密钥校验     : 已通过（hmac-sha256）
 DDC 后端     : 已找到 /opt/homebrew/bin/m1ddc
 ```
@@ -347,6 +347,7 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch Discovery"
 | Windows 首次运行弹 SmartScreen | 未签名。更多信息 → 仍要运行；正式分发需代码签名 |
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高；新版已启用 Per-Monitor V2 DPI 感知。必要时更新 Microsoft Edge WebView2 Runtime |
 | Windows 启动时有多个终端窗口闪动 | 升级到 `v2.0.1` 或更高。旧版会反复调用 `tasklist`/DDC 工具等控制台程序；新版统一使用 `CREATE_NO_WINDOW` 隐藏子进程窗口 |
+| Windows 托盘可以打开，但设置窗口完全不显示 | `v2.0.1` 设置窗口子进程误继承了 `SW_HIDE`。升级到 `v2.0.2` 或更高；新版只抑制控制台，不会隐藏 WebView 设置窗口 |
 | Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 里运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`；它会读当前输入源并写回同一个值，不改变画面。把输出的「原生错误」、处理建议和日志一起保留 |
 | 网页打不开 | 端口 8767 被占，或被 `--no-web` 关了；去日志里看实际地址与令牌 |
 | 首次启动设置窗口晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
