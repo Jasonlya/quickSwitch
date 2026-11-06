@@ -165,6 +165,24 @@ function renderSwitchboard(status) {
   for (const target of ["mac", "win"]) {
     const button = $(target === "mac" ? "btnMac" : "btnWin");
     const summary = switchSummary(status, target);
+    const hotkeys = status.hotkeys || {};
+    const combo = String(hotkeys[target === "mac" ? "switch_to_mac" : "switch_to_win"] || "").trim();
+    const shortcut = $(target === "mac" ? "hotkeyMac" : "hotkeyWin");
+    shortcut.textContent = "";
+    shortcut.hidden = !combo;
+    shortcut.dataset.registered = hotkeys.registered ? "true" : "false";
+    shortcut.title = combo
+      ? "切换热键：" + combo + (hotkeys.registered ? "（本机已注册）" : "（本机未注册，Windows server 端生效）")
+      : "";
+    shortcut.setAttribute("aria-label", combo ? "切换热键 " + combo : "");
+    if (combo) {
+      for (const part of combo.split("+")) {
+        if (!part.trim()) continue;
+        const key = document.createElement("kbd");
+        key.textContent = part.trim();
+        shortcut.appendChild(key);
+      }
+    }
     button.title = summary;
     button.setAttribute("aria-label", summary.replace(/\n/g, "，"));
     button.dataset.current = owner === target && !pendingTarget ? "true" : "false";

@@ -1,11 +1,11 @@
 # QuickSwitch
 
-[![Release](https://img.shields.io/github/v/release/Jasonlya/quickswitch?label=release)](https://github.com/Jasonlya/quickswitch/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-002FA7.svg)](LICENSE)
+[![Release: latest](docs/images/badge-release.svg)](https://github.com/Jasonlya/quickswitch/releases/latest)
+[![License: MIT](docs/images/badge-license.svg)](LICENSE)
 
 一键切换**显示器输入源**和**键鼠控制权**。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows。
 
-![QuickSwitch 主界面：两个切换按钮和折叠的信息入口](docs/images/quickstart.png)
+![QuickSwitch 主界面：两个切换按钮、按钮内的热键标记和折叠的信息入口](docs/images/quickstart.png)
 
 ## 下载安装
 
@@ -53,6 +53,7 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 ## 日常使用
 
 - 按 `Ctrl+Alt+1`：切到 Mac；按 `Ctrl+Alt+2`：切回 Windows。
+- 主界面的两个切换按钮右侧会直接显示对应热键，不需要展开「更多信息与设置」。
 - Deskflow 里也要把热键配成同一组，这样一次按键会同时切换显示器和键鼠。
 - 也可以右键菜单栏/托盘图标，选择「切到 Mac」或「切到 Windows」。
 - 主界面只保留两个切换按钮。把鼠标停在按钮上，可查看当前输入源、对端连接、密钥校验、DDC 和快捷键摘要。

@@ -303,6 +303,50 @@ code {
   font-size: 12px;
 }
 
+.switch-trailing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.switch-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.switch-shortcut::before {
+  content: "热键";
+  margin-right: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.switch-shortcut[hidden] { display: none; }
+
+.switch-shortcut[data-registered="false"] { opacity: 0.82; }
+
+.switch-shortcut kbd {
+  min-width: 22px;
+  padding: 2px 5px;
+  border: 1px solid var(--separator-strong);
+  border-bottom-color: rgba(60, 60, 67, 0.32);
+  border-radius: 5px;
+  background: var(--fill);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .switch-shortcut kbd { border-bottom-color: rgba(255, 255, 255, 0.24); }
+}
+
 .switch-chevron {
   display: grid;
   width: 22px;
@@ -792,6 +836,9 @@ input[type="checkbox"] {
   .masthead-note { font-size: 11px; }
   .switch-actions { grid-template-columns: 1fr; gap: 10px; }
   .switch-button { min-height: 94px; padding: 15px 16px; border-radius: 18px; }
+  .switch-trailing { gap: 6px; }
+  .switch-shortcut { gap: 3px; }
+  .switch-shortcut kbd { padding: 2px 4px; }
   .switch-icon { width: 46px; height: 46px; border-radius: 13px; }
   .switch-icon svg { width: 24px; height: 24px; }
   .switch-target { font-size: 24px; }
