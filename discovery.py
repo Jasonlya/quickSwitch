@@ -24,27 +24,23 @@ PeerHook = Callable[[Dict[str, Any]], None]
 
 
 def local_ipv4_addresses() -> List[str]:
-    """枚举本机 IPv4 地址（用于推导各网段的广播地址）。"""
-    addresses: List[str] = []
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            addresses.append(str(info[4][0]))
-    except OSError:
-        pass
+    """返回本机默认出口网卡的 IPv4，不依赖可能阻塞的主机名 DNS 查询。
 
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        # UDP connect 不发送数据，只查询出口路由，可拿到默认出口网卡的本地地址
-        probe.connect(("8.8.8.8", 80))
-        addresses.append(str(probe.getsockname()[0]))
-    except OSError:
-        pass
-    finally:
-        probe.close()
-
+    GitHub 的 macOS Runner 上，解析 ``socket.gethostname()`` 可能卡住数十秒；
+    这里对固定 IP 做 UDP ``connect``（不发送数据），只让系统选择出口网卡。
+    使用几个不同目标可覆盖默认路由切换的情况，重复地址会自动去重。
+    """
     result: List[str] = []
-    for address in addresses:
-        if address and not address.startswith("127.") and address not in result:
+    for target in ("1.1.1.1", "8.8.8.8", "223.5.5.5"):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect((target, 80))
+            address = str(probe.getsockname()[0])
+        except OSError:
+            continue
+        finally:
+            probe.close()
+        if address and not address.startswith(("127.", "169.254.")) and address not in result:
             result.append(address)
     return result
 
@@ -80,6 +76,7 @@ class PeerDiscovery:
         self._sock: Optional[socket.socket] = None
         self._tasks: List[asyncio.Task] = []
         self._peers: Dict[str, Dict[str, Any]] = {}
+        self._sequence = 0
         self._running = False
 
     # ---------------------------------------------------------------- 目标地址
@@ -167,7 +164,8 @@ class PeerDiscovery:
         candidates = [info for name, info in self._peers.items() if name not in excluded]
         if not candidates:
             return None
-        return dict(max(candidates, key=lambda info: info["ts"]))
+        # Windows 的 monotonic 时钟精度可能让两条公告落在同一时刻，用单调序号兜底。
+        return dict(max(candidates, key=lambda info: (info["ts"], info.get("seq", 0))))
 
     def observe(self, data: bytes, addr: Tuple[str, int]) -> Optional[Dict[str, Any]]:
         """处理一个数据报；返回「新发现或地址变化」的设备信息，否则 None。"""
@@ -178,12 +176,14 @@ class PeerDiscovery:
             return None  # 忽略自己（多网卡时可能收到本机广播）
         host = addr[0]
         previous = self._peers.get(payload["name"])
+        self._sequence += 1
         info = {
             "name": payload["name"],
             "host": host,
             "port": payload["port"],
             "role": payload.get("role"),
             "ts": time.monotonic(),
+            "seq": self._sequence,
         }
         self._peers[payload["name"]] = info
         if previous is None or previous["host"] != host or previous["port"] != info["port"]:

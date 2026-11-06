@@ -31,6 +31,7 @@ from config import save_config as save_config_file
 from config import validate as validate_config
 from ddc import DEFAULT_INPUT_CANDIDATES
 import deskflow_bridge
+from discovery import local_ipv4_addresses
 
 log = logging.getLogger("webui")
 
@@ -40,23 +41,6 @@ def _ui_dir() -> Path:
     if getattr(sys, "_MEIPASS", None) and bundled.is_dir():
         return bundled
     return Path(__file__).resolve().parent / "ui"
-
-
-def local_ipv4_addresses() -> List[str]:
-    """本机局域网 IPv4（用于提示「在另一台机器上填这个地址」）；不发起真实流量。"""
-    found = set()
-    with contextlib.suppress(OSError):
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            found.add(info[4][0])
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        probe.connect(("1.1.1.1", 80))   # UDP connect 不发包，只用来选中默认出口网卡
-        found.add(probe.getsockname()[0])
-    except OSError:
-        pass
-    finally:
-        probe.close()
-    return sorted(ip for ip in found if not ip.startswith(("127.", "169.254.")))
 
 
 UI_DIR = _ui_dir()

@@ -84,6 +84,10 @@ class BroadcastTargetTests(unittest.TestCase):
     def test_local_ipv4_addresses_excludes_loopback(self) -> None:
         self.assertFalse(any(addr.startswith("127.") for addr in discovery_module.local_ipv4_addresses()))
 
+    def test_local_ipv4_addresses_does_not_resolve_hostname(self) -> None:
+        with mock.patch("discovery.socket.getaddrinfo", side_effect=AssertionError("不应解析主机名")):
+            discovery_module.local_ipv4_addresses()
+
 
 class PeerTableTests(unittest.TestCase):
     def test_observe_records_new_peer(self) -> None:
@@ -125,11 +129,12 @@ class PeerTableTests(unittest.TestCase):
 
     def test_best_peer_prefers_most_recent(self) -> None:
         node = make_discovery()
-        node.observe(make_discovery(name="node-b").build_packet(), ("192.168.1.20", 1))
-        time.sleep(0.01)
-        node.observe(make_discovery(name="node-c").build_packet(), ("192.168.1.21", 1))
-        self.assertEqual(node.best_peer()["name"], "node-c")
-        self.assertEqual(node.best_peer(exclude=["node-c"])["name"], "node-b")
+        # Windows 时钟精度可能让两条公告拿到相同时间戳，后观察到的仍应胜出。
+        with mock.patch("discovery.time.monotonic", return_value=100.0):
+            node.observe(make_discovery(name="node-b").build_packet(), ("192.168.1.20", 1))
+            node.observe(make_discovery(name="node-c").build_packet(), ("192.168.1.21", 1))
+            self.assertEqual(node.best_peer()["name"], "node-c")
+            self.assertEqual(node.best_peer(exclude=["node-c"])["name"], "node-b")
 
 
 class LiveDiscoveryTests(unittest.IsolatedAsyncioTestCase):
