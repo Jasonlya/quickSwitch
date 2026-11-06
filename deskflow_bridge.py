@@ -475,10 +475,11 @@ def render_settings(cfg: Dict[str, Any], prepared: PreparedDeskflow) -> str:
             "",
         ))
     else:
+        language_sync = bool(_section(cfg).get("language_sync", False))
         lines.extend((
             "[client]",
             f"remoteHost={prepared.remote_host}",
-            "languageSync=true",
+            f"languageSync={'true' if language_sync else 'false'}",
             "",
         ))
     return "\n".join(lines)
@@ -989,6 +990,7 @@ def snapshot(
     return {
         "auto_start": bool(section.get("auto_start", True)),
         "mode": mode,
+        "language_sync": bool(section.get("language_sync", False)),
         "path": path or "",
         "installed": bool(path),
         "running": running,

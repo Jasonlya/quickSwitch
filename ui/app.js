@@ -703,8 +703,21 @@ function switchSummary(status, target) {
   if (status.ddc && !status.ddc.tool_ok) parts.push("DDC 工具不可用");
   const hotkey = status.hotkeys &&
     status.hotkeys[target === "mac" ? "switch_to_mac" : "switch_to_win"];
-  if (hotkey) parts.push("快捷键 " + hotkey);
+  if (hotkey) parts.push(hotkeyOwnerLabel(status) + " " + hotkey);
   return "切到 " + LABEL[target] + "\n" + parts.join(" · ");
+}
+
+function hotkeyOwnerLabel(status) {
+  if (String(status.role || "").toLowerCase() === "client") return "Windows 键盘";
+  return status.hotkeys && status.hotkeys.registered ? "本机热键" : "本机热键未注册";
+}
+
+function hotkeyOwnerDetail(status) {
+  if (String(status.role || "").toLowerCase() === "client") {
+    return "仅在连接键鼠的 Windows 端生效；在 macOS 键盘或输入法上按不会触发";
+  }
+  if (status.hotkeys && status.hotkeys.registered) return "本机已注册";
+  return "本机未注册";
 }
 
 function renderSwitchboard(status) {
@@ -718,10 +731,11 @@ function renderSwitchboard(status) {
     shortcut.textContent = "";
     shortcut.hidden = !combo;
     shortcut.dataset.registered = hotkeys.registered ? "true" : "false";
+    shortcut.dataset.label = hotkeyOwnerLabel(status);
     shortcut.title = combo
-      ? "切换热键：" + combo + (hotkeys.registered ? "（本机已注册）" : "（本机未注册，Windows server 端生效）")
+      ? hotkeyOwnerLabel(status) + "：" + combo + "（" + hotkeyOwnerDetail(status) + "）"
       : "";
-    shortcut.setAttribute("aria-label", combo ? "切换热键 " + combo : "");
+    shortcut.setAttribute("aria-label", combo ? hotkeyOwnerLabel(status) + " " + combo : "");
     if (combo) {
       for (const part of combo.split("+")) {
         if (!part.trim()) continue;
@@ -819,6 +833,7 @@ function renderStatus(status) {
   rows($("kvHotkeys"), [
     ["切到 Mac", text(status.hotkeys.switch_to_mac)],
     ["切到 Windows", text(status.hotkeys.switch_to_win)],
+    ["生效位置", text(hotkeyOwnerDetail(status))],
     ["注册状态", flag(status.hotkeys.registered ? "已注册" : "未注册", status.hotkeys.registered)],
     ["说明", text(status.hotkeys.reason)],
   ]);
@@ -839,6 +854,11 @@ function renderStatus(status) {
     ["活动连接", deskflow.active_connections === null || deskflow.active_connections === undefined ? "读取不到" : text(deskflow.active_connections)],
     ["最近错误", text(deskflow.last_error)],
     ["连接方向", deskflow.mode === "server" ? "本机提供键鼠（服务端）" : "本机接收键鼠（客户端）"],
+    ["键盘布局", deskflow.mode === "server"
+      ? "Windows 保持自身布局"
+      : deskflow.language_sync
+        ? "跟随 Windows 当前布局"
+        : "保留 Mac 当前输入源（推荐）"],
     ["共享端口", deskflow.mode === "server" ? "TCP " + text(deskflow.port) : "连接 " + text(deskflow.peer_host)],
     ["核心来源", deskflow.bundled ? "QuickSwitch 内置" : text(deskflow.path)],
     ["macOS 权限", deskflowPermissionText(deskflow)],
@@ -976,6 +996,8 @@ const CONFIG_FIELDS = [
     { path: "deskflow.auto_start", type: "checkbox" },
     { path: "deskflow.port", type: "number", min: 1, max: 65535 },
     { path: "deskflow.mac_side", type: "select", options: ["left", "right"] },
+    { path: "deskflow.language_sync", type: "checkbox", label: "同步键盘语言（高级）",
+      hint: "默认关闭，保留 Mac 当前输入源。只有两台电脑安装完全相同的键盘布局时才建议开启。" },
     { path: "deskflow.path", type: "text" },
   ] },
   { group: "网络", fields: [
@@ -1067,7 +1089,7 @@ function renderConfig(view) {
       wrap.dataset.path = field.path;
       const label = document.createElement("label");
       label.setAttribute("for", "cfg-" + field.path);
-      label.textContent = field.path;
+      label.textContent = field.label || field.path;
       if (needsRestart(field.path)) {
         const mark = document.createElement("span");
         mark.className = "flag";
@@ -1100,6 +1122,12 @@ function renderConfig(view) {
       input.addEventListener("input", () => markDirty(field.path));
       input.addEventListener("change", () => markDirty(field.path));
       wrap.append(label, input);
+      if (field.hint) {
+        const hint = document.createElement("p");
+        hint.className = "config-hint";
+        hint.textContent = field.hint;
+        wrap.appendChild(hint);
+      }
       fields.appendChild(wrap);
       INPUTS.set(field.path, input);
     }

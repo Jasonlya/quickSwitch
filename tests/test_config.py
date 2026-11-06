@@ -105,6 +105,13 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(config_module.ConfigError):
             config_module.load_config()
 
+    def test_invalid_deskflow_language_sync_raises(self) -> None:
+        self.path.write_text(
+            json.dumps({"deskflow": {"language_sync": "yes"}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
     def test_broken_json_raises(self) -> None:
         self.path.write_text("{ not json", encoding="utf-8")
         with self.assertRaises(config_module.ConfigError):

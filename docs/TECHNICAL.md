@@ -83,7 +83,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（2.0.3.0）
+    version_info.txt        Windows exe 的版本资源（2.0.4.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   THIRD_PARTY_NOTICES.md Deskflow 版本、GPL-2.0、源码与校验信息
@@ -403,7 +403,7 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe` + NSIS 安装包（自带 Python 运行时、`ui/` 和 `deskflow\` 便携版） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` + `installer.nsi` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`、WKWebView 桥接依赖和嵌套 `Deskflow.app`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.0.3`）用于运行时与 macOS
+两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.0.4`）用于运行时与 macOS
 `CFBundleShortVersionString`；Windows 的 `packaging/version_info.txt` 是静态版本资源，发布时需要同步更新。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
@@ -438,7 +438,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-2.0.3.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-2.0.4.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -490,7 +490,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 ```bash
 python3 packaging/fetch-deskflow.py --target macos-arm64
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-2.0.3-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-2.0.4-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
@@ -498,7 +498,7 @@ Windows 安装包在 Windows 构建机上生成：
 ```powershell
 python packaging\fetch-deskflow.py --target windows-x64
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=2.0.3 packaging\installer.nsi
+makensis -INPUTCHARSET UTF8 /DVERSION=2.0.4 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后先在 macOS/Windows
@@ -510,8 +510,8 @@ macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v2.0.3
-git push origin v2.0.3
+git tag v2.0.4
+git push origin v2.0.4
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -556,8 +556,9 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v2.0.3` 继续内置官方 Deskflow 无界面核心，并补齐 Windows 设置窗口的升级与启动兜底；macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v2.0.4` 继续内置官方 Deskflow 无界面核心，修正 Mac 热键提示与键盘布局同步策略，并修复 Windows 安装器中文乱码；macOS 安装包仅提供 Apple Silicon（arm64）。
 
+- **v2.0.4**：macOS 客户端默认关闭 Deskflow 的 `languageSync`，保留 Mac 自己的当前输入源，避免 Windows 布局在 Mac 上缺失时键位错乱；该选项仍可在设置页手动开启。Mac 主界面不再把未在本机注册的热键误标为可用热键，而是明确标注为「Windows 键盘」。Windows NSIS 安装器改用带 BOM 的 UTF-8 脚本并通过 `-INPUTCHARSET UTF8` 编译，修复安装过程与完成页中文乱码。新增配置校验、Deskflow 配置生成和安装器编码回归测试。
 - **v2.0.3**：修复 Windows 覆盖安装时旧 `QuickSwitch.exe` 仍在运行、导致二进制未真正替换的问题；安装器和卸载器会先结束旧的 QuickSwitch 与 `deskflow-core` 进程。设置窗口子进程若在启动阶段退出，父进程现在会识别失败并回退到默认浏览器，不再表现为点击后无响应。新增对应回归测试。
 - **v2.0.2**：修复 `v2.0.1` Windows 设置窗口不显示。设置窗口是 GUI 子进程，不能再复用带 `STARTUPINFO.wShowWindow = SW_HIDE` 的控制台静默参数；新版改用仅设置 `CREATE_NO_WINDOW` 的窗口子进程参数，既避免控制台闪动，也不会隐藏 WebView 窗口。新增对应回归测试。
 - **v2.0.1**：Windows 运行时所有控制台子进程（`tasklist`、`taskkill`、`netstat`、DDC 回退工具和设置窗口）统一使用 `CREATE_NO_WINDOW`，修复启动后终端窗口反复闪动。新增键鼠共享可读状态：主界面显示「已连接 / 等待连接 / 连接异常 / 未运行」，详情展示活动 TCP 连接数、最近错误；连接成功依据真实 `ESTABLISHED` 连接或 Deskflow 本次日志，而不是只看核心进程是否存活。
@@ -577,7 +578,7 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
   Windows 自动使用 `server` 角色。
 - **已验证（Windows 高 DPI 配置）**：Windows EXE manifest 声明 Per-Monitor V2，
   `settings_window.py` 在 WebView2 创建前提供运行时兜底；manifest 解析和专项测试通过。
-- **发布产物**：GitHub Actions 在 `v2.0.3` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **发布产物**：GitHub Actions 在 `v2.0.4` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；

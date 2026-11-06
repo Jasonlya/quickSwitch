@@ -194,7 +194,15 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("coreMode=1", text)
         self.assertIn("tlsEnabled=false", text)
         self.assertIn("remoteHost=192.168.1.20", text)
+        self.assertIn("languageSync=false", text)
         self.assertNotIn("[server]", text)
+
+    def test_client_language_sync_is_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            text = deskflow_bridge.render_settings(
+                self.cfg(language_sync=True), prepared(tmp, mode="client")
+            )
+        self.assertIn("languageSync=true", text)
 
     def test_server_settings_reference_external_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -420,6 +428,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(status["connected"])
         self.assertEqual(status["connection_state"], "connected")
         self.assertEqual(status["active_connections"], 1)
+        self.assertFalse(status["language_sync"])
         self.assertIn("Windows 键鼠", status["summary"])
 
     def test_permission_failure_is_surfaced(self) -> None:

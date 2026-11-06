@@ -72,7 +72,13 @@ EDITABLE: Dict[str, Any] = {
                 "reconnect_max_interval": None, "connect_wait": None},
     "discovery": {"enabled": None, "port": None, "interval": None, "ttl": None, "broadcast": None},
     "auth": {"secret": None},
-    "deskflow": {"auto_start": None, "path": None, "port": None, "mac_side": None},
+    "deskflow": {
+        "auto_start": None,
+        "path": None,
+        "port": None,
+        "mac_side": None,
+        "language_sync": None,
+    },
     "ddc": {
         "monitor_id": None,
         "display_index": None,

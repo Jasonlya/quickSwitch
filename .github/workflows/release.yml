@@ -160,7 +160,7 @@ jobs:
           if [ -n "$MAKENSIS" ]; then
             "$MAKENSIS" -VERSION 2>&1 | tee -a "$LOG"
             cd packaging
-            "$MAKENSIS" -NOCONFIG "-DVERSION=${{ steps.ver.outputs.version }}" installer.nsi 2>&1 | tee -a "$LOG"
+            "$MAKENSIS" -NOCONFIG -INPUTCHARSET UTF8 "-DVERSION=${{ steps.ver.outputs.version }}" installer.nsi 2>&1 | tee -a "$LOG"
             code=${PIPESTATUS[0]}
           else
             echo "::error title=找不到 NSIS::Chocolatey 安装完成，但没有找到 makensis.exe"
@@ -227,8 +227,12 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch ${{ github.ref_name }}：修复 Windows 设置窗口在升级后仍打不开的问题，并补齐启动失败兜底。
+            QuickSwitch ${{ github.ref_name }}：修正 Mac 热键提示与跨系统键位布局，并修复 Windows 安装器中文乱码。
 
+            - macOS 主界面把未在本机注册的热键明确标注为「Windows 键盘」，不再显示成 Mac 本机热键
+            - macOS 客户端默认保留自己的当前输入源，不再错误跟随 Windows 键盘布局；设置页可按需开启「同步键盘语言」
+            - 键鼠共享详情会显示当前使用的是「保留 Mac 输入源」还是「跟随 Windows 布局」
+            - Windows NSIS 安装器改为 UTF-8 编译，修复安装过程页和完成页的中文乱码
             - Windows 安装器覆盖安装前自动结束旧版 QuickSwitch 与 `deskflow-core`，避免旧 exe 被占用、修复实际未生效
             - 设置窗口子进程启动后立即退出时自动回退到默认浏览器，不再出现点击「打开设置窗口」无响应
             - 官方 Deskflow 1.27.0 无界面核心直接内置，不再安装或打开 Deskflow 客户端

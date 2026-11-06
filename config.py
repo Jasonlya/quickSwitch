@@ -73,6 +73,7 @@ DEFAULTS: Dict[str, Any] = {
         "path": "",                   # 留空自动检测；高级用户可指定 Deskflow.app / deskflow-core
         "port": 24800,                # Deskflow 键鼠共享端口（与 QuickSwitch 的 8765 不同）
         "mac_side": "left",           # Mac 屏幕在 Windows 的左侧还是右侧
+        "language_sync": False,       # 默认保留 Mac 自己的输入源；避免 Deskflow 1.27 把中文布局误判为缺失
     },
     "network": {
         "ping_interval": 10.0,        # 心跳间隔
@@ -268,6 +269,9 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
     mac_side = deskflow.get("mac_side", "left")
     if mac_side not in ("left", "right"):
         raise ConfigError(f"deskflow.mac_side 必须是 left 或 right，当前为 {mac_side!r}")
+    language_sync = deskflow.get("language_sync", False)
+    if not isinstance(language_sync, bool):
+        raise ConfigError(f"deskflow.language_sync 必须是布尔值，当前为 {language_sync!r}")
 
     peer_host = str(cfg.get("peer_host") or "").strip()
     discovery_enabled = bool((cfg.get("discovery") or {}).get("enabled"))

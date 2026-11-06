@@ -52,7 +52,7 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 - 按 `Ctrl+Alt+1`：切到 Mac；按 `Ctrl+Alt+2`：切回 Windows。
 - QuickSwitch 启动时会自动启动内置键鼠共享核心；退出 QuickSwitch 时会一并停止它。
 - 主界面两个切换按钮下方会显示「键鼠共享 · 已连接 / 等待连接 / 连接异常」；点它可直接展开键鼠共享详情。连接成功表示两端核心已经建立 TCP 连接，失败时会显示可读原因。
-- 主界面的两个切换按钮右侧会直接显示对应热键，不需要展开「更多信息与设置」。
+- 主界面的两个切换按钮右侧会直接显示对应热键；在 Mac 上会标注「Windows 键盘」，因为热键由连接键鼠的 Windows 服务端注册，macOS 本机不注册。
 - 切换热键会自动写入键鼠共享配置，一次按键同时切换显示器和键鼠，不需要再去 Deskflow 里重复设置。
 - 也可以右键菜单栏/托盘图标，选择「切到 Mac」或「切到 Windows」。
 - 设置窗口是应用内原生弹窗，不占用浏览器标签页；主界面只保留两个切换按钮。把鼠标停在按钮上，可查看当前输入源、对端连接、密钥校验、DDC 和快捷键摘要。
@@ -71,6 +71,9 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高版本；该版本启用 Per-Monitor V2 DPI 感知。升级后仍模糊时，检查 Windows 显示缩放并更新 WebView2 Runtime |
 | Windows 启动时终端窗口闪动 | 升级到 `v2.0.1` 或更高版本；旧版轮询核心状态时会短暂创建控制台窗口，新版已统一隐藏这些子进程窗口 |
 | Windows 托盘能打开但设置窗口不显示 | 升级到 `v2.0.3` 或更高版本。`v2.0.2` 已移除误继承的 `SW_HIDE`；`v2.0.3` 还会在覆盖安装前关闭旧进程，并在 WebView 启动失败时自动改用浏览器，避免点击后无反应 |
+| Mac 上按界面的 `Ctrl+Alt+1/2` 没反应 | 热键由连接键鼠的 Windows 服务端注册，macOS 本机不注册；请使用 Windows 键盘，或直接用托盘/菜单栏按钮切换。`v2.0.4` 起界面会明确标注热键来源 |
+| 切到 Mac 后键位不对或中文输入法被改 | 升级到 `v2.0.4`。该版本默认关闭 Deskflow 语言同步，保留 Mac 当前输入源，重启键鼠共享后生效；只有两端键盘布局完全一致时才在设置页开启「同步键盘语言」 |
+| Windows 安装过程或完成页乱码 | 升级到 `v2.0.4`。新版 NSIS 安装器按 UTF-8 编译，修复中文页面乱码；旧版乱码不影响功能 |
 | Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`，先做不改变画面的写入自检；输出会包含具体 WinError 和处理建议 |
 | 键鼠共享没有启动 | 点主界面的「键鼠共享」状态入口查看可读结论；也可运行 `--deskflow-status` 确认 `installed`、`bundled`、`running`、`connected` 和 `last_error`。确认 `deskflow.auto_start` 开启；只有强制使用其它路径时才需要设置 `deskflow.path` |
 | 显示器切了但键鼠没过去 | 先点「重启键鼠共享」；确认两端 QuickSwitch 都在运行且键鼠共享状态为「已连接」。Windows 安装包会自动放行 TCP `24800`，macOS 需授予辅助功能/输入监控/本地网络权限。若显示「需要权限」或日志出现 `assistive devices does not trust this process` / `failed to create quartz event tap`，在系统设置中允许 QuickSwitch、Deskflow 或 deskflow-core，再重启核心 |
@@ -88,8 +91,8 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v2.0.3
-git push origin v2.0.3
+git tag v2.0.4
+git push origin v2.0.4
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

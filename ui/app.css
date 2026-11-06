@@ -362,10 +362,17 @@ code {
 }
 
 .switch-shortcut::before {
-  content: "热键";
+  content: attr(data-label);
   margin-right: 2px;
   color: var(--muted);
   font-size: 10px;
+}
+
+.config-hint {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .switch-shortcut[hidden] { display: none; }

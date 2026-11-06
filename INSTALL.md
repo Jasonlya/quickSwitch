@@ -244,7 +244,7 @@ DDC 后端     : Windows 原生 DDC（DXVA2）已检测到 1 个显示器：...
 | 方式 | 怎么用 | 前提 |
 | --- | --- | --- |
 | 托盘 / 菜单栏 | 右键图标 →「打开设置窗口」/「切到 Mac」/「切到 Windows」/「查看状态（写入日志）」/「退出」 | 无 |
-| 全局热键 | `Ctrl+Alt+1` → Mac，`Ctrl+Alt+2` → Windows | 只在 Windows `server` 端注册，需管理员权限 |
+| 全局热键 | `Ctrl+Alt+1` → Mac，`Ctrl+Alt+2` → Windows | 只在 Windows `server` 端注册，需管理员权限；macOS 界面会标注「Windows 键盘」 |
 | 设置窗口 | 应用内原生 WebView 弹窗，点按钮或展开设置 | 程序正在运行 |
 
 ### 4.2 设置窗口与本地控制台
@@ -270,6 +270,7 @@ QuickSwitch 会在后台自动启动随包内置的 `deskflow-core`，并根据 
 - macOS 自动作为客户端，连接 QuickSwitch 发现或配置的 Windows 地址。
 - 两台电脑的屏幕相对位置由 `deskflow.mac_side` 控制：Mac 在左选 `left`，在右选 `right`。
 - QuickSwitch 的两个切换热键会自动写入键鼠共享配置，一次按键同时切换显示器和键鼠。
+- macOS 客户端默认保留自己的当前输入源，不跟随 Windows 的键盘布局；只有两台电脑安装了完全相同的键盘布局时，才在设置页开启「同步键盘语言」。
 - 退出 QuickSwitch 时，内置核心会同步停止；需要单独重启时，用设置页的「重启键鼠共享」或托盘菜单。
 
 默认状态目录为 `~/.quickswitch/deskflow`，里面有 `Deskflow.conf`、`Deskflow-server.conf`（仅服务端）、`deskflow.pid` 和 `deskflow.log`。主界面按钮下方会显示「键鼠共享 · 已连接 / 等待连接 / 连接异常」状态；点击后可展开模式、活动 TCP 连接数、最近错误、日志路径和原始日志。只有检测到活动连接或 Deskflow 明确报告连接成功时，才会显示「已连接」。
@@ -348,6 +349,9 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch Discovery"
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高；新版已启用 Per-Monitor V2 DPI 感知。必要时更新 Microsoft Edge WebView2 Runtime |
 | Windows 启动时有多个终端窗口闪动 | 升级到 `v2.0.1` 或更高。旧版会反复调用 `tasklist`/DDC 工具等控制台程序；新版统一使用 `CREATE_NO_WINDOW` 隐藏子进程窗口 |
 | Windows 托盘可以打开，但设置窗口完全不显示 | 升级到 `v2.0.3` 或更高。`v2.0.2` 已移除误继承的 `SW_HIDE`；`v2.0.3` 覆盖安装时会自动结束旧进程，WebView 启动失败时会回退到默认浏览器。安装完仍建议从托盘「退出」后再重新打开一次 |
+| Mac 上按界面显示的 `Ctrl+Alt+1/2` 没反应 | 热键只在连接键鼠的 Windows 端注册。请使用 Windows 键盘，或直接点 Mac 菜单栏/设置页的切换按钮；界面上的热键来源会标注为「Windows 键盘」 |
+| 切到 Mac 后键位不对或输入法被改 | 升级到 `v2.0.4` 或更高。默认关闭 Deskflow 语言同步，保留 Mac 当前输入源；在设置页点「重启键鼠共享」后生效。只有两端键盘布局完全相同时才开启「同步键盘语言」 |
+| Windows 安装过程或完成页中文乱码 | 升级到 `v2.0.4` 或更高。安装器已改为 UTF-8 编译；旧版乱码不影响安装后的功能 |
 | Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 里运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`；它会读当前输入源并写回同一个值，不改变画面。把输出的「原生错误」、处理建议和日志一起保留 |
 | 网页打不开 | 端口 8767 被占，或被 `--no-web` 关了；去日志里看实际地址与令牌 |
 | 首次启动设置窗口晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
