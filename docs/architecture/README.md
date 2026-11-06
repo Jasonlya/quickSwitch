@@ -4,7 +4,7 @@
 - `../images/quickswitch-architecture.gif`：README 内联动图。
 - `../images/quickswitch-architecture.png`：静态预览。
 
-静态站点入口为 `docs/architecture/index.html`。推送到 `main` 后，`.github/workflows/pages.yml` 会自动发布 `docs/`；首次运行会尝试自动启用 GitHub Pages。
+静态站点入口为 `docs/architecture/index.html`。首次在仓库的 `Settings → Pages → Build and deployment` 将 `Source` 选为 `GitHub Actions`；之后推送到 `main` 时，`.github/workflows/pages.yml` 会自动发布 `docs/`。
 
 `https://jasonlya.github.io/quickswitch/architecture/`
 
