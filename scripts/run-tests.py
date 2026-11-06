@@ -52,19 +52,68 @@ def terminate_process_tree(process: subprocess.Popen) -> None:
         process.wait(timeout=5)
 
 
+def run_whole_suite(timeout: float, env: dict) -> int:
+    """在单个子进程中运行完整套件；日志实时输出，超时则清理整棵进程树。"""
+    command = [
+        sys.executable,
+        "-m",
+        "unittest",
+        "discover",
+        "-v",
+        "-s",
+        str(ROOT / "tests"),
+        "-t",
+        str(ROOT),
+    ]
+    print(f"运行完整测试套件（总超时 {timeout:g}s）", flush=True)
+    started = time.monotonic()
+    process = subprocess.Popen(
+        command,
+        cwd=str(ROOT),
+        stdin=subprocess.DEVNULL,
+        env=env,
+        **child_process_options(),
+    )
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        terminate_process_tree(process)
+        print("\n" + "=" * 70, flush=True)
+        print("ERROR: TIMEOUT full test suite", flush=True)
+        print("-" * 70, flush=True)
+        print(f"完整测试套件超过 {timeout:g}s 未结束，已终止", flush=True)
+        return 1
+
+    elapsed = time.monotonic() - started
+    if returncode == 0:
+        print(f"\n完整测试套件通过：{elapsed:.1f}s", flush=True)
+        return 0
+    print(f"\n完整测试套件失败：exit={returncode}，{elapsed:.1f}s", flush=True)
+    return 1
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         with contextlib.suppress(AttributeError, OSError, ValueError):
             stream.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--timeout", type=float, default=60.0, help="单条用例超时秒数")
+    parser.add_argument("--timeout", type=float, default=900.0, help="完整套件或单条用例的超时秒数")
     parser.add_argument("--max-timeouts", type=int, default=3, help="出现多少次超时后停止")
+    parser.add_argument("--per-test", action="store_true", help="逐条运行用例（慢，但便于定位单个卡死用例）")
     args = parser.parse_args()
 
     suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
     ids = list(iter_test_ids(suite))
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    env = {
+        **os.environ,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+        "PYTHONUNBUFFERED": "1",
+    }
+    if not args.per_test:
+        return run_whole_suite(args.timeout, env)
+
     failures = 0
     timeouts = 0
 
