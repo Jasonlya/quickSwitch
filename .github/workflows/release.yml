@@ -221,7 +221,9 @@ jobs:
           VERSION="$(python3 packaging/fetch-deskflow.py --print-version)"
           curl -fL --retry 3 -o "deskflow-${VERSION}-source.tar.gz" \
             "https://github.com/deskflow/deskflow/archive/refs/tags/v${VERSION}.tar.gz"
-      - uses: softprops/action-gh-release@v2
+      # v3.0.4 修复了资产上传并发时 update-a-release-asset 的瞬时 404，
+      # 并切换到 Node 24 Actions runtime。
+      - uses: softprops/action-gh-release@v3.0.4
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
