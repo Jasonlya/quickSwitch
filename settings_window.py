@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
 
+from process_utils import silent_subprocess_kwargs
+
 TITLE = "QuickSwitch 设置"
 WIDTH = 1120
 HEIGHT = 820
@@ -145,6 +147,7 @@ class SettingsWindow:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 close_fds=True,
+                **silent_subprocess_kwargs(),
             )
         except OSError:
             self._process = None

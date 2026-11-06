@@ -100,6 +100,71 @@ class RunningTests(unittest.TestCase):
         with mock.patch("deskflow_bridge._run_text", return_value=(0, "deskflow.exe 1")):
             self.assertFalse(deskflow_bridge.is_running(system="Windows"))
 
+    def test_windows_status_command_hides_console(self) -> None:
+        completed = mock.Mock(returncode=0, stdout="deskflow-core.exe 1234", stderr="")
+        with mock.patch("deskflow_bridge.subprocess.run", return_value=completed) as run:
+            deskflow_bridge._run_text(["tasklist"], system="Windows")
+        self.assertTrue(run.call_args.kwargs["creationflags"] & 0x08000000)
+
+    def test_live_managed_process_skips_tasklist_probe(self) -> None:
+        process = mock.Mock(pid=1234)
+        process.poll.return_value = None
+        with deskflow_bridge._PROCESS_LOCK:
+            deskflow_bridge._PROCESS = process
+        with mock.patch("deskflow_bridge._run_text") as run:
+            self.assertTrue(deskflow_bridge.is_running(system="Windows"))
+        run.assert_not_called()
+
+
+class ConnectionStateTests(unittest.TestCase):
+    def test_client_connected_then_disconnected(self) -> None:
+        log = "\n".join((
+            "[2026-11-06T10:00:00.000] INFO: connected to server",
+            "[2026-11-06T10:00:05.000] INFO: disconnected from server",
+        ))
+        result = deskflow_bridge.inspect_connection_log(log, mode="client")
+        self.assertEqual(result["state"], "waiting_peer")
+
+    def test_client_failure_is_actionable(self) -> None:
+        log = "[2026-11-06T10:00:00.000] WARNING: failed to connect to server: Timed out"
+        result = deskflow_bridge.inspect_connection_log(log, mode="client")
+        self.assertEqual(result["state"], "error")
+        self.assertEqual(result["last_error"], "Timed out")
+
+    def test_server_connected_and_disconnected(self) -> None:
+        log = "\n".join((
+            '[2026-11-06T10:00:00.000] INFO: client "quickswitch-client" has connected',
+            '[2026-11-06T10:05:00.000] INFO: client "quickswitch-client" has disconnected',
+        ))
+        result = deskflow_bridge.inspect_connection_log(log, mode="server")
+        self.assertEqual(result["state"], "waiting_peer")
+
+    def test_parses_windows_netstat_established_connections(self) -> None:
+        output = """
+  TCP    0.0.0.0:24800          0.0.0.0:0              LISTENING       1234
+  TCP    192.168.1.101:24800    192.168.1.102:52143    ESTABLISHED     1234
+  TCP    192.168.1.101:24800    192.168.1.103:52144    ESTABLISHED     9999
+  TCP    192.168.1.101:52150    192.168.1.20:8765      ESTABLISHED     1234
+"""
+        self.assertEqual(
+            deskflow_bridge.parse_established_connections(
+                output, system="Windows", pid=1234, port=24800
+            ),
+            1,
+        )
+
+    def test_parses_macos_lsof_established_connections(self) -> None:
+        output = """
+deskflow-co 4321 user   42u  IPv4 0x1234      0t0  TCP 192.168.1.102:52143->192.168.1.101:24800 (ESTABLISHED)
+deskflow-co 4321 user   43u  IPv4 0x5678      0t0  TCP *:24800 (LISTEN)
+"""
+        self.assertEqual(
+            deskflow_bridge.parse_established_connections(
+                output, system="Darwin", pid=4321, port=24800
+            ),
+            1,
+        )
+
 
 class HotkeyTests(unittest.TestCase):
     def test_converts_keyboard_combo(self) -> None:
@@ -224,6 +289,16 @@ class LaunchTests(unittest.TestCase):
             self.assertFalse(popen.call_args.kwargs.get("shell", False))
             self.assertEqual(item.pid_path.read_text().strip(), "4321")
 
+    def test_windows_launch_is_detached_without_console(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            item = prepared(tmp)
+            process = mock.Mock(pid=4321)
+            with mock.patch("deskflow_bridge.subprocess.Popen", return_value=process) as popen:
+                deskflow_bridge._launch(item, system="Windows")
+            flags = popen.call_args.kwargs["creationflags"]
+            self.assertTrue(flags & 0x08000000)
+            self.assertTrue(flags & 0x00000008)
+
 
 class StartTests(unittest.TestCase):
     def test_missing_core_returns_actionable_error(self) -> None:
@@ -331,6 +406,8 @@ class SnapshotTests(unittest.TestCase):
              mock.patch("deskflow_bridge.managed_pid", return_value=123), \
              mock.patch("deskflow_bridge.is_bundled_path", return_value=True), \
              mock.patch("deskflow_bridge.macos_accessibility_trusted", return_value=True), \
+             mock.patch("deskflow_bridge._active_connection_count", return_value=1), \
+             mock.patch("deskflow_bridge._log_since_launch", return_value="INFO: connected to server"), \
              mock.patch("deskflow_bridge.log_tail", return_value=""):
             status = deskflow_bridge.snapshot(cfg, system="Darwin", state_dir=Path("/tmp/qs-df"))
         self.assertEqual(status["mode"], "client")
@@ -340,6 +417,10 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(status["bundled"])
         self.assertFalse(status["tls"])
         self.assertEqual(status["peer_host"], "192.168.1.20")
+        self.assertTrue(status["connected"])
+        self.assertEqual(status["connection_state"], "connected")
+        self.assertEqual(status["active_connections"], 1)
+        self.assertIn("Windows 键鼠", status["summary"])
 
     def test_permission_failure_is_surfaced(self) -> None:
         cfg = {"role": "server", "deskflow": {"auto_start": True}}
@@ -348,11 +429,46 @@ class SnapshotTests(unittest.TestCase):
              mock.patch("deskflow_bridge.is_running", return_value=False), \
              mock.patch("deskflow_bridge.managed_pid", return_value=None), \
              mock.patch("deskflow_bridge.macos_accessibility_trusted", return_value=False), \
+             mock.patch("deskflow_bridge._log_since_launch", return_value=message), \
              mock.patch("deskflow_bridge.log_tail", return_value=message):
             status = deskflow_bridge.snapshot(cfg, system="Darwin", state_dir=Path("/tmp/qs-df"))
         self.assertTrue(status["permission_required"])
         self.assertIn("辅助功能", status["detail"])
         self.assertEqual(status["mode"], "server")
+        self.assertFalse(status["connected"])
+        self.assertEqual(status["connection_state"], "permission_required")
+
+    def test_reports_client_connection_error(self) -> None:
+        cfg = {
+            "role": "client",
+            "peer_host": "192.168.1.20",
+            "deskflow": {"auto_start": True, "port": 24800},
+        }
+        log = "WARNING: failed to connect to server: Timed out"
+        with mock.patch("deskflow_bridge.locate_deskflow_core", return_value="/tmp/deskflow-core"), \
+             mock.patch("deskflow_bridge.managed_pid", return_value=123), \
+             mock.patch("deskflow_bridge.is_bundled_path", return_value=True), \
+             mock.patch("deskflow_bridge.macos_accessibility_trusted", return_value=True), \
+             mock.patch("deskflow_bridge._active_connection_count", return_value=0), \
+             mock.patch("deskflow_bridge._log_since_launch", return_value=log), \
+             mock.patch("deskflow_bridge.log_tail", return_value=log):
+            status = deskflow_bridge.snapshot(cfg, system="Darwin", state_dir=Path("/tmp/qs-df"))
+        self.assertFalse(status["connected"])
+        self.assertEqual(status["connection_state"], "error")
+        self.assertIn("连接超时", status["last_error"])
+
+    def test_reports_server_waiting_for_client(self) -> None:
+        cfg = {"role": "server", "deskflow": {"auto_start": True, "port": 24800}}
+        log = "INFO: started server, waiting for clients"
+        with mock.patch("deskflow_bridge.locate_deskflow_core", return_value="/tmp/deskflow-core"), \
+             mock.patch("deskflow_bridge.managed_pid", return_value=123), \
+             mock.patch("deskflow_bridge.is_bundled_path", return_value=True), \
+             mock.patch("deskflow_bridge._active_connection_count", return_value=0), \
+             mock.patch("deskflow_bridge._log_since_launch", return_value=log), \
+             mock.patch("deskflow_bridge.log_tail", return_value=log):
+            status = deskflow_bridge.snapshot(cfg, system="Windows", state_dir=Path("/tmp/qs-df"))
+        self.assertEqual(status["connection_state"], "waiting_peer")
+        self.assertIn("等待 Mac 连接", status["summary"])
 
 
 class PermissionTests(unittest.TestCase):

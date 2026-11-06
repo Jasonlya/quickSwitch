@@ -35,20 +35,68 @@ function authText(auth) {
 }
 
 function deskflowText(info) {
+  return deskflowView(info).label;
+}
+
+function deskflowView(info) {
+  if (!info) {
+    return { state: "unknown", label: DASH, title: "读取不到键鼠共享状态", detail: "下一轮状态采样会自动重试。" };
+  }
+  if (!info.installed) {
+    return { state: "error", label: "不可用", title: "缺少内置键鼠共享核心", detail: "请重新安装 QuickSwitch。" };
+  }
+  if (info.permission_required) {
+    return {
+      state: "error",
+      label: "需要权限",
+      title: info.active_connections ? "已连上 Windows，但 macOS 尚未授权" : "macOS 尚未允许键鼠共享",
+      detail: "打开「系统设置 → 隐私与安全性」，在「辅助功能」和「输入监控」中允许 QuickSwitch；如果列表出现 Deskflow 或 deskflow-core，也一并允许。授权后回来点「重启键鼠共享」。",
+    };
+  }
+  if (!info.running) {
+    return {
+      state: "stopped",
+      label: "未运行",
+      title: "键鼠共享没有运行",
+      detail: info.summary || "检查自动启动设置，或点「重启键鼠共享」。",
+    };
+  }
+  if (info.connected || info.connection_state === "connected") {
+    return { state: "connected", label: "已连接", title: "键鼠共享已连接", detail: info.summary || "对端已建立连接，现在可以移动鼠标验证。" };
+  }
+  if (info.connection_state === "error" || info.connection_state === "unmanaged") {
+    return {
+      state: "error",
+      label: "连接异常",
+      title: "键鼠共享连接失败",
+      detail: info.last_error || info.summary || "查看下方日志后重试。",
+    };
+  }
+  if (info.connection_state === "connecting") {
+    return { state: "connecting", label: "连接中", title: "正在建立键鼠共享连接", detail: info.summary || "通常几秒内完成。" };
+  }
+  return {
+    state: "waiting",
+    label: "等待连接",
+    title: info.mode === "server" ? "服务已就绪，等待 Mac 连接" : "正在等待 Windows 响应",
+    detail: info.summary || "确认两端 QuickSwitch 都已启动，且防火墙允许共享端口。",
+  };
+}
+
+function deskflowTechnicalText(info) {
   if (!info) return DASH;
-  if (!info.installed) return "缺少内置核心，请重新安装 QuickSwitch";
-  if (info.permission_required) return "需要 macOS 辅助功能权限";
   const mode = info.mode === "server" ? "Windows 服务端" : "macOS 客户端";
-  if (info.running) return "运行中 · " + mode + " · TCP " + text(info.port);
-  if (!info.auto_start) return "已停止 · 自动启动已关闭";
-  return "未运行 · 等待启动 · " + mode;
+  const active = info.active_connections === null || info.active_connections === undefined
+    ? "连接数读取不到"
+    : "活动连接 " + info.active_connections;
+  return mode + " · TCP " + text(info.port) + " · " + active;
 }
 
 function deskflowPermissionText(info) {
   if (!info) return DASH;
   if (info.system !== "Darwin") return "Windows 无需额外授权";
   if (info.accessibility === false) return "辅助功能未授权；授权后点「重启键鼠共享」";
-  if (info.accessibility === true) return "辅助功能已授权";
+  if (info.accessibility === true) return "辅助功能已授权；若键鼠仍无效，请再检查「输入监控」";
   return "读取不到授权状态；如键鼠无效请检查辅助功能与输入监控";
 }
 
@@ -776,18 +824,33 @@ function renderStatus(status) {
   ]);
 
   const deskflow = status.deskflow || {};
+  const shareView = deskflowView(deskflow);
+  const shareCard = $("shareStatus");
+  shareCard.dataset.state = shareView.state;
+  $("shareStatusLabel").textContent = shareView.label;
+  $("shareStatusTitle").textContent = shareView.title;
+  $("shareStatusDetail").textContent = shareView.detail;
+  $("shareChip").dataset.state = shareView.state;
+  $("shareChip").title = shareView.title + "：" + shareView.detail;
+  $("shareChipText").textContent = "键鼠共享 · " + shareView.label;
   rows($("kvDeskflow"), [
     ["状态", deskflowText(deskflow)],
+    ["连接结果", text(deskflow.summary)],
+    ["活动连接", deskflow.active_connections === null || deskflow.active_connections === undefined ? "读取不到" : text(deskflow.active_connections)],
+    ["最近错误", text(deskflow.last_error)],
     ["连接方向", deskflow.mode === "server" ? "本机提供键鼠（服务端）" : "本机接收键鼠（客户端）"],
     ["共享端口", deskflow.mode === "server" ? "TCP " + text(deskflow.port) : "连接 " + text(deskflow.peer_host)],
     ["核心来源", deskflow.bundled ? "QuickSwitch 内置" : text(deskflow.path)],
     ["macOS 权限", deskflowPermissionText(deskflow)],
-    ["最近状态", text(deskflow.detail)],
+    ["运行详情", deskflowTechnicalText(deskflow)],
     ["配置", text(deskflow.config_path)],
     ["日志", text(deskflow.log_path)],
   ]);
-  $("deskflowState").textContent = text(deskflow.detail);
+  $("deskflowState").textContent = deskflow.connected
+    ? "已检测到活动连接；如果键鼠仍无响应，请检查 macOS 辅助功能与输入监控权限。"
+    : "";
   $("btnOpenAccessibility").hidden = !(status.host && status.host.platform === "Darwin");
+  $("btnOpenInputMonitoring").hidden = !(status.host && status.host.platform === "Darwin");
 
   $("probeDefault").textContent = (status.probe_candidates || []).join(", ") || DASH;
   renderOwnership(status);
@@ -1167,6 +1230,11 @@ async function bootstrap() {
   $("btnRestartDeskflow").addEventListener("click", () => deskflowAction("/api/deskflow/restart", "重启中 …"));
   $("btnStopDeskflow").addEventListener("click", () => deskflowAction("/api/deskflow/stop", "停止中 …"));
   $("btnOpenAccessibility").addEventListener("click", () => openPrivacySettings("accessibility"));
+  $("btnOpenInputMonitoring").addEventListener("click", () => openPrivacySettings("input_monitoring"));
+  $("shareChip").addEventListener("click", () => {
+    $("advanced").open = true;
+    requestAnimationFrame(() => $("keymouse").scrollIntoView({ behavior: "smooth", block: "start" }));
+  });
   $("btnSave").addEventListener("click", saveConfig);
   $("btnRevert").addEventListener("click", () => api("/api/config").then(renderConfig));
   bindSetupWizard();

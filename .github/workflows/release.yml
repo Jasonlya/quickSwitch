@@ -225,12 +225,14 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch 2.0.0 大版本：Deskflow 键鼠共享已直接集成。
+            QuickSwitch ${{ github.ref_name }}：修复 Windows 终端窗口闪动，并明确显示键鼠共享连接结果。
 
             - 官方 Deskflow 1.27.0 无界面核心直接内置，不再安装或打开 Deskflow 客户端
             - Windows 自动作为服务端，macOS 自动作为客户端，并自动发现对端地址
             - 自动生成键鼠共享配置，同步热键、端口、屏幕左右布局和剪贴板共享
             - QuickSwitch 启动/退出时自动管理核心进程，设置页和托盘可重启或停止
+            - 主界面新增键鼠共享状态；只有真实 TCP 已连接才显示「已连接」，失败会显示超时、拒绝或权限原因
+            - Windows 状态轮询和 DDC 子进程统一隐藏控制台，不再闪烁终端窗口
             - Windows 安装包自动放行 TCP 24800；macOS App 内置官方 `Deskflow.app`
             - macOS 设置页提供辅助功能、输入监控和本地网络权限引导
             - 应用内原生设置窗口，保留 DDC 切换、6 位配对码、配置向导和 Windows DPI 修复

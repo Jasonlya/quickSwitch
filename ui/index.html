@@ -67,6 +67,11 @@
         </span>
       </button>
     </div>
+    <button type="button" class="share-chip" id="shareChip" data-state="unknown" title="查看键鼠共享详情">
+      <span class="share-chip-dot" aria-hidden="true"></span>
+      <span id="shareChipText">键鼠共享 · 检查中</span>
+      <span class="share-chip-more">详情</span>
+    </button>
     <p class="run-state" id="runState" aria-live="polite"></p>
   </main>
 
@@ -187,11 +192,22 @@
       <p class="section-note">由 QuickSwitch 内置的核心自动连接，不需要安装或打开 Deskflow 客户端。Windows 自动作为服务端，macOS 自动作为客户端。</p>
     </div>
     <div class="section-body">
+      <div class="share-status" id="shareStatus" data-state="unknown" role="status" aria-live="polite">
+        <span class="share-status-dot" aria-hidden="true"></span>
+        <div class="share-status-copy">
+          <div class="share-status-head">
+            <span class="share-status-label" id="shareStatusLabel">检查中</span>
+            <strong id="shareStatusTitle">正在读取键鼠共享状态</strong>
+          </div>
+          <p class="share-status-detail" id="shareStatusDetail">连接成功后会在这里明确显示。</p>
+        </div>
+      </div>
       <dl class="kv" id="kvDeskflow"></dl>
       <div class="controls">
         <button type="button" class="action action-quiet" id="btnRestartDeskflow">重启键鼠共享</button>
         <button type="button" class="action action-quiet" id="btnStopDeskflow">停止键鼠共享</button>
         <button type="button" class="action action-quiet" id="btnOpenAccessibility">打开辅助功能设置</button>
+        <button type="button" class="action action-quiet" id="btnOpenInputMonitoring" hidden>打开输入监控设置</button>
       </div>
       <p class="run-state" id="deskflowState" aria-live="polite"></p>
     </div>

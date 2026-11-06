@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from process_utils import silent_subprocess_kwargs
+
 log = logging.getLogger("deskflow")
 
 SERVER_NAME = "quickswitch-server"
@@ -225,13 +227,16 @@ def locate_deskflow(cfg: Dict[str, Any], *, system: Optional[str] = None) -> Opt
     return locate_deskflow_core(cfg, system=system)
 
 
-def _run_text(command: list[str], *, timeout: float = 3.0) -> Tuple[int, str]:
+def _run_text(
+    command: list[str], *, timeout: float = 3.0, system: Optional[str] = None
+) -> Tuple[int, str]:
     completed = subprocess.run(
         command,
         capture_output=True,
         text=True,
         errors="replace",
         timeout=timeout,
+        **silent_subprocess_kwargs(system=system),
     )
     return int(completed.returncode), (completed.stdout or "") + (completed.stderr or "")
 
@@ -242,12 +247,17 @@ def is_running(*, system: Optional[str] = None) -> bool:
     global _PROCESS
     try:
         with _PROCESS_LOCK:
-            if _PROCESS is not None and _PROCESS.poll() is not None:
+            if _PROCESS is not None:
+                if _PROCESS.poll() is None:
+                    return True
                 _PROCESS = None
         if system == "Windows":
-            code, output = _run_text(["tasklist", "/FI", "IMAGENAME eq deskflow-core.exe", "/NH"])
+            code, output = _run_text(
+                ["tasklist", "/FI", "IMAGENAME eq deskflow-core.exe", "/NH"],
+                system=system,
+            )
             return code == 0 and "deskflow-core.exe" in output.lower()
-        code, _ = _run_text(["pgrep", "-x", "deskflow-core"])
+        code, _ = _run_text(["pgrep", "-x", "deskflow-core"], system=system)
         return code == 0
     except (OSError, subprocess.SubprocessError):
         return False
@@ -268,9 +278,13 @@ def _pid_is_core(pid: int, *, system: str) -> bool:
         return False
     try:
         if system == "Windows":
-            code, output = _run_text(["tasklist", "/FI", f"PID eq {pid}", "/NH"])
+            code, output = _run_text(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"], system=system
+            )
             return code == 0 and "deskflow-core" in output.lower()
-        code, output = _run_text(["ps", "-p", str(pid), "-o", "comm="])
+        code, output = _run_text(
+            ["ps", "-p", str(pid), "-o", "comm="], system=system
+        )
         return code == 0 and "deskflow-core" in output.lower()
     except (OSError, subprocess.SubprocessError):
         return False
@@ -280,7 +294,12 @@ def managed_pid(*, system: Optional[str] = None, state_dir: Optional[Path] = Non
     """返回由 QuickSwitch 启动且仍存活的核心 PID；不把外部进程误认成自己的。"""
     system = system or platform.system()
     pid = read_pid(state_dir=state_dir)
-    return pid if pid is not None and _pid_is_core(pid, system=system) else None
+    if pid is None:
+        return None
+    with _PROCESS_LOCK:
+        if _PROCESS is not None and _PROCESS.pid == pid:
+            return pid if _PROCESS.poll() is None else None
+    return pid if _pid_is_core(pid, system=system) else None
 
 
 def macos_accessibility_trusted() -> Optional[bool]:
@@ -325,6 +344,7 @@ def open_macos_privacy_settings(kind: str = "accessibility") -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
+            **silent_subprocess_kwargs(),
         )
         return True
     except OSError as exc:
@@ -527,10 +547,7 @@ def _launch(prepared: PreparedDeskflow, *, system: str) -> subprocess.Popen:
             "close_fds": True,
         }
         if system == "Windows":
-            kwargs["creationflags"] = (
-                getattr(subprocess, "DETACHED_PROCESS", 0)
-                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            )
+            kwargs.update(silent_subprocess_kwargs(system=system, detached=True))
         else:
             kwargs["start_new_session"] = True
         process = subprocess.Popen(
@@ -551,6 +568,211 @@ def log_tail(path: Path, *, lines: int = 12, limit: int = 900) -> str:
         return ""
     rows = [row.strip() for row in text.splitlines() if row.strip()]
     return "\n".join(rows[-lines:])[-limit:]
+
+
+_LAUNCH_BANNER_RE = re.compile(
+    r"^===== QuickSwitch .*? 启动 deskflow-core .*=====\s*$", re.MULTILINE
+)
+_LOG_PREFIX_RE = re.compile(
+    r"^\[[^\]]+\]\s*(?:TRACE|DEBUG|INFO|WARNING|ERROR|FATAL):\s*", re.IGNORECASE
+)
+_PERMISSION_MARKERS = (
+    "assistive devices does not trust this process",
+    "process is not trusted anymore",
+    "failed to create quartz event tap",
+    "not authorized to capture",
+    "input monitoring permission",
+)
+
+
+def _log_since_launch(path: Path, *, max_bytes: int = 128 * 1024) -> str:
+    """读取本次核心启动后的日志，避免旧连接状态覆盖当前结果。"""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - max_bytes))
+            data = handle.read()
+    except OSError:
+        return ""
+    text = data.decode("utf-8", errors="replace")
+    matches = list(_LAUNCH_BANNER_RE.finditer(text))
+    if matches:
+        text = text[matches[-1].end():]
+    return text.strip()
+
+
+def _log_message(line: str) -> str:
+    return _LOG_PREFIX_RE.sub("", line.strip())
+
+
+def inspect_connection_log(text: str, *, mode: str) -> Dict[str, Any]:
+    """从本次 Deskflow 日志提取连接状态和最近一次连接错误。"""
+    state = "waiting_peer"
+    last_error = ""
+    for raw_line in (text or "").splitlines():
+        message = _log_message(raw_line)
+        if not message:
+            continue
+        lower = message.lower()
+
+        if mode == "client":
+            if "connected to server" in lower:
+                state = "connected"
+            elif "failed to connect to server" in lower:
+                state = "error"
+                last_error = message.rsplit(": ", 1)[-1].strip() or message
+            elif "disconnected from server" in lower:
+                state = "waiting_peer"
+            elif "started client" in lower or "starting client" in lower:
+                state = "connecting"
+        else:
+            if re.search(r'client "[^"]+" has connected', message, re.IGNORECASE):
+                state = "connected"
+            elif re.search(r'client "[^"]+" has disconnected', message, re.IGNORECASE):
+                state = "waiting_peer"
+            elif "accepted client connection" in lower or "starting server" in lower:
+                state = "connecting"
+            elif "started server, waiting for clients" in lower:
+                state = "waiting_peer"
+            elif "cannot listen for clients" in lower or "failed to start server" in lower:
+                state = "error"
+                last_error = message.rsplit(": ", 1)[-1].strip() or message
+
+    return {"state": state, "last_error": last_error}
+
+
+def _endpoint_port(endpoint: str) -> Optional[int]:
+    match = re.search(r":(\d+)$", endpoint.strip())
+    return int(match.group(1)) if match else None
+
+
+def parse_established_connections(
+    output: str,
+    *,
+    system: str,
+    pid: Optional[int] = None,
+    port: int = DEFAULT_PORT,
+) -> int:
+    """解析 ``netstat`` / ``lsof`` 输出中的已建立连接数。"""
+    connections = set()
+    for line in (output or "").splitlines():
+        stripped = line.strip()
+        if not stripped or "ESTABLISHED" not in stripped.upper():
+            continue
+
+        if system == "Windows":
+            parts = stripped.split()
+            if len(parts) < 5 or parts[0].upper() != "TCP":
+                continue
+            local, remote, state, owner = parts[1], parts[2], parts[3], parts[4]
+            if state.upper() != "ESTABLISHED":
+                continue
+            try:
+                owner_pid: Optional[int] = int(owner)
+            except ValueError:
+                owner_pid = None
+            if pid is not None and owner_pid != pid:
+                continue
+            if _endpoint_port(local) != port and _endpoint_port(remote) != port:
+                continue
+            connections.add((local, remote, owner_pid))
+            continue
+
+        parts = stripped.split()
+        try:
+            owner_pid = int(parts[1])
+        except (IndexError, ValueError):
+            continue
+        if pid is not None and owner_pid != pid:
+            continue
+        if pid is None and "deskflow" not in parts[0].lower():
+            continue
+        try:
+            tcp_index = [part.upper() for part in parts].index("TCP")
+            endpoints = parts[tcp_index + 1]
+            local, remote = endpoints.split("->", 1)
+        except (ValueError, IndexError):
+            continue
+        if _endpoint_port(local) != port and _endpoint_port(remote) != port:
+            continue
+        connections.add((local, remote, owner_pid))
+    return len(connections)
+
+
+def _active_connection_count(
+    *, system: str, pid: Optional[int], port: int
+) -> Optional[int]:
+    try:
+        if system == "Windows":
+            code, output = _run_text(
+                ["netstat", "-ano", "-p", "tcp"], timeout=2.5, system=system
+            )
+            if code != 0:
+                return None
+            return parse_established_connections(
+                output, system=system, pid=pid, port=port
+            )
+
+        command = ["lsof", "-nP"]
+        if pid is not None:
+            command.extend(["-a", "-p", str(pid)])
+        command.extend([f"-iTCP:{port}", "-sTCP:ESTABLISHED"])
+        code, output = _run_text(command, timeout=2.5, system=system)
+        if code not in (0, 1) and not output:
+            return None
+        return parse_established_connections(
+            output, system=system, pid=pid, port=port
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _permission_error(text: str) -> bool:
+    lower = (text or "").lower()
+    return any(marker in lower for marker in _PERMISSION_MARKERS)
+
+
+def _friendly_connection_error(reason: str, *, port: int) -> str:
+    message = (reason or "").strip().strip('"')
+    lower = message.lower()
+    if "timed out" in lower or "timeout" in lower:
+        return f"连接超时；请确认对端 QuickSwitch 正在运行，并允许 TCP {port}"
+    if "connection refused" in lower:
+        return f"对端拒绝连接；请确认服务端已启动并监听 TCP {port}"
+    if "not trusted" in lower or "quartz event tap" in lower or "assistive" in lower:
+        return "macOS 未授予辅助功能或输入监控权限"
+    if "unrecognised client" in lower:
+        return "对端不认识本机名称；请重启两端 QuickSwitch 后重试"
+    if "already has a connected client" in lower:
+        return "对端已有同名客户端连接；请关闭另一台正在使用的 QuickSwitch"
+    return message or "未知连接错误"
+
+
+def _connection_summary(
+    mode: str, state: str, *, peer_host: str, port: int, error: str
+) -> str:
+    if state == "missing":
+        return "键鼠共享不可用：安装包缺少内置 Deskflow 核心"
+    if state == "permission_required":
+        return "键鼠共享未工作：macOS 未授予辅助功能或输入监控权限"
+    if state == "stopped":
+        return "键鼠共享已停止"
+    if state == "unmanaged":
+        return "键鼠共享异常：检测到非 QuickSwitch 管理的核心"
+    if state == "connected":
+        if mode == "server":
+            return "已连接：Windows 键鼠可以移到 Mac 上使用"
+        return "已连接：Windows 键鼠已经可以控制这台 Mac"
+    if state == "connecting":
+        return "核心已启动，正在建立连接"
+    if state == "error":
+        action = "连接 Windows" if mode == "client" else "等待 Mac 连接"
+        return f"{action}失败：{error}"
+    if mode == "server":
+        return "服务已就绪，等待 Mac 连接"
+    target = peer_host or "Windows"
+    return f"客户端运行中，正在尝试连接 {target}:{port}"
 
 
 def start(
@@ -614,7 +836,9 @@ def start(
 def _pid_alive(pid: int, *, system: str) -> bool:
     try:
         if system == "Windows":
-            code, output = _run_text(["tasklist", "/FI", f"PID eq {pid}", "/NH"])
+            code, output = _run_text(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"], system=system
+            )
             return code == 0 and str(pid) in output
         os.kill(pid, 0)
         return True
@@ -646,6 +870,7 @@ def stop(
                 capture_output=True,
                 text=True,
                 timeout=8,
+                **silent_subprocess_kwargs(system=system),
             )
         else:
             os.kill(pid, signal.SIGTERM)
@@ -695,6 +920,7 @@ def snapshot(
     *,
     system: Optional[str] = None,
     state_dir: Optional[Path] = None,
+    peer_host: Optional[str] = None,
 ) -> Dict[str, Any]:
     """生成供日志和设置页展示的 Deskflow 核心快照。"""
     system = system or platform.system()
@@ -703,24 +929,63 @@ def snapshot(
     path = locate_deskflow_core(cfg, system=system)
     directory = _state_dir(cfg, state_dir)
     log_path = directory / "deskflow.log"
-    running = is_running(system=system)
     pid = managed_pid(system=system, state_dir=directory)
     managed = pid is not None
-    log_text = log_tail(log_path, lines=8)
-    permission_required = (
-        system == "Darwin"
-        and "assistive devices does not trust this process" in log_text.lower()
+    running = managed or is_running(system=system)
+    port = int(section.get("port", DEFAULT_PORT))
+    peer_host = str(peer_host or cfg.get("peer_host") or "")
+    session_log = _log_since_launch(log_path)
+    last_log = log_tail(log_path, lines=20, limit=3000)
+    log_state = inspect_connection_log(session_log, mode=mode)
+    accessibility = macos_accessibility_trusted() if system == "Darwin" else None
+    permission_required = system == "Darwin" and _permission_error(session_log)
+    active_connections = (
+        _active_connection_count(system=system, pid=pid, port=port) if running else 0
     )
-    if not path:
-        detail = "未找到内置 Deskflow 核心"
-    elif running and managed:
-        detail = f"无界面键鼠共享核心运行中（{mode}，TCP {section.get('port', DEFAULT_PORT)}）"
-    elif running:
-        detail = "检测到非 QuickSwitch 管理的 deskflow-core；请退出旧进程后重试"
-    elif permission_required:
-        detail = "macOS 未授予辅助功能权限，键鼠共享核心无法捕获键鼠"
+    connected = bool(
+        running
+        and not permission_required
+        and (
+            (active_connections is not None and active_connections > 0)
+            or log_state["state"] == "connected"
+        )
+    )
+    last_error = ""
+    if permission_required:
+        connection_state = "permission_required"
+        last_error = "macOS 未授予辅助功能或输入监控权限"
+    elif not path:
+        connection_state = "missing"
+    elif not running:
+        connection_state = "stopped"
+    elif not managed:
+        connection_state = "unmanaged"
+    elif connected:
+        connection_state = "connected"
+    elif log_state["state"] == "error":
+        connection_state = "error"
+        last_error = _friendly_connection_error(
+            str(log_state.get("last_error") or ""), port=port
+        )
+    elif log_state["state"] == "connecting":
+        connection_state = "connecting"
     else:
-        detail = log_text or "键鼠共享核心未运行"
+        connection_state = "waiting_peer"
+
+    summary = _connection_summary(
+        mode,
+        connection_state,
+        peer_host=peer_host,
+        port=port,
+        error=last_error,
+    )
+    if connection_state == "unmanaged":
+        last_error = "检测到非 QuickSwitch 管理的 deskflow-core"
+    if connection_state == "stopped" and not bool(section.get("auto_start", True)):
+        summary = "键鼠共享已停止（自动启动已关闭）"
+    if connection_state == "permission_required" and active_connections:
+        summary = "已连上 Windows，但 macOS 尚未授权键盘和鼠标控制"
+
     return {
         "auto_start": bool(section.get("auto_start", True)),
         "mode": mode,
@@ -731,15 +996,20 @@ def snapshot(
         "bundled": bool(path and is_bundled_path(path, system=system)),
         "managed": managed,
         "tls": False,
-        "port": int(section.get("port", DEFAULT_PORT)),
-        "peer_host": str(cfg.get("peer_host") or ""),
+        "port": port,
+        "peer_host": peer_host,
+        "connected": connected,
+        "connection_state": connection_state,
+        "active_connections": active_connections,
+        "summary": summary,
+        "last_error": last_error,
         "config_path": str(directory / "Deskflow.conf"),
         "server_config_path": (
             str(directory / "Deskflow-server.conf") if mode == "server" else ""
         ),
         "log_path": str(log_path),
-        "last_log": log_text,
-        "accessibility": macos_accessibility_trusted() if system == "Darwin" else None,
+        "last_log": last_log,
+        "accessibility": accessibility,
         "permission_required": permission_required,
-        "detail": detail,
+        "detail": summary,
     }

@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from process_utils import silent_subprocess_kwargs
 from windows_ddc import WindowsNativeDDC
 
 log = logging.getLogger("ddc")
@@ -91,6 +92,7 @@ def run_command(cmd: List[str], timeout: float) -> Tuple[int, str, str]:
         timeout=timeout,
         text=True,
         errors="replace",
+        **silent_subprocess_kwargs(),
     )
     return completed.returncode, completed.stdout or "", completed.stderr or ""
 

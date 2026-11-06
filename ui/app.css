@@ -207,6 +207,47 @@ code {
   gap: 14px;
 }
 
+.share-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.share-chip:hover { border-color: var(--separator-strong); background: var(--surface-solid); color: var(--ink); }
+.share-chip:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--focus-ring); }
+
+.share-chip-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+
+.share-chip-more { color: var(--accent); }
+.share-chip[data-state="connected"] { border-color: rgba(52, 199, 89, 0.28); color: #1d7a36; }
+.share-chip[data-state="connected"] .share-chip-dot { background: #34c759; }
+.share-chip[data-state="waiting"],
+.share-chip[data-state="connecting"] { border-color: rgba(0, 122, 255, 0.22); color: var(--ink); }
+.share-chip[data-state="waiting"] .share-chip-dot,
+.share-chip[data-state="connecting"] .share-chip-dot { background: var(--accent); }
+.share-chip[data-state="error"] { border-color: rgba(255, 59, 48, 0.26); color: var(--danger); }
+.share-chip[data-state="error"] .share-chip-dot { background: var(--danger); }
+
+@media (prefers-color-scheme: dark) {
+  .share-chip[data-state="connected"] { color: #30d158; }
+}
+
 .switch-button {
   position: relative;
   display: grid;
@@ -698,6 +739,79 @@ input[type="checkbox"] {
 .kv > div:last-child { border-bottom: 0; }
 .kv dt { color: var(--muted); }
 .kv dd { overflow-wrap: anywhere; }
+
+.share-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border: 1px solid var(--separator);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.share-status-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  box-shadow: 0 0 0 4px var(--fill);
+}
+
+.share-status-copy { min-width: 0; }
+
+.share-status-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.share-status-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.share-status-head strong { font-size: 13px; font-weight: 600; }
+.share-status-detail { margin-top: 3px !important; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+.share-status[data-state="connected"] {
+  border-color: rgba(52, 199, 89, 0.28);
+  background: rgba(52, 199, 89, 0.07);
+}
+
+.share-status[data-state="connected"] .share-status-dot {
+  background: #34c759;
+  box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.14);
+}
+
+.share-status[data-state="waiting"],
+.share-status[data-state="connecting"] {
+  border-color: rgba(0, 122, 255, 0.22);
+  background: var(--accent-soft);
+}
+
+.share-status[data-state="waiting"] .share-status-dot,
+.share-status[data-state="connecting"] .share-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.share-status[data-state="error"] {
+  border-color: rgba(255, 59, 48, 0.26);
+  background: rgba(255, 59, 48, 0.07);
+}
+
+.share-status[data-state="error"] .share-status-dot {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.12);
+}
 
 .dot {
   display: inline-block;

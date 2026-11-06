@@ -169,6 +169,14 @@ class DeskflowStartupTests(unittest.TestCase):
             status = QuickSwitchApp._refresh_deskflow_status(app)
         self.assertEqual(status["detail"], "上次失败：需要辅助功能权限")
 
+    def test_macos_permission_settings_open_only_once(self) -> None:
+        app = make_app(True)
+        app._permission_prompted = False
+        with mock.patch("main.deskflow_bridge.prompt_macos_accessibility", return_value=False) as prompt:
+            QuickSwitchApp._prompt_macos_permission_once(app)
+            QuickSwitchApp._prompt_macos_permission_once(app)
+        prompt.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

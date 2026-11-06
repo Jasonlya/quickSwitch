@@ -83,7 +83,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（2.0.0.0）
+    version_info.txt        Windows exe 的版本资源（2.0.1.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   THIRD_PARTY_NOTICES.md Deskflow 版本、GPL-2.0、源码与校验信息
@@ -161,6 +161,10 @@ QuickSwitch 直接调用官方 `deskflow-core`，不启动 Deskflow GUI。`deskf
 
 `deskflow.auto_start=true`（默认）时随 QuickSwitch 启动；`peer_host` 为 `auto` 的 macOS 客户端会等待 UDP 发现 Windows 后再启动或重启核心。退出 QuickSwitch 会同步停止核心。
 
+状态页不再只检查进程是否存活。`deskflow_bridge.snapshot()` 会结合 Deskflow 本次启动后的日志和真实 TCP 连接，返回 `connected`、`connection_state`、`active_connections`、`summary` 和 `last_error`：Windows 服务端通过隐藏执行的 `netstat` 检查 `24800` 的 `ESTABLISHED` 连接，macOS 客户端通过 `lsof` 检查核心进程与对端的连接；同时解析 `connected to server`、`client "... " has connected`、超时、拒绝连接和 macOS 权限错误。主界面只显示可读结论，点击「键鼠共享」状态可展开技术细节。
+
+Windows 上所有状态轮询和 DDC 外部命令都通过 `process_utils.silent_subprocess_kwargs()` 加上 `CREATE_NO_WINDOW`，系统托盘程序不会再为 `tasklist`、`taskkill`、`netstat` 或 DDC 回退工具闪出终端窗口；已经由当前进程管理的核心直接使用缓存的 `Popen` 判断，进一步减少子进程调用。
+
 内置位置：
 
 - macOS：`QuickSwitch.app/Contents/Resources/deskflow/Deskflow.app`
@@ -168,7 +172,7 @@ QuickSwitch 直接调用官方 `deskflow-core`，不启动 Deskflow GUI。`deskf
 
 构建机由 `packaging/fetch-deskflow.py` 下载并校验官方 Deskflow `1.27.0`，macOS 由 `bundle-deskflow.py` 在 PyInstaller 完成后原样嵌入，Windows 由 NSIS 安装到 QuickSwitch 目录。用户不需要安装或打开 Deskflow 客户端，也不需要手工填写 Server/Client、屏幕布局或热键。
 
-Windows 安装包会自动放行 TCP `24800`。macOS 首次仍需在「隐私与安全性」中授予辅助功能、输入监控和本地网络权限；修改后点设置页「重启键鼠共享」。若日志出现 `assistive devices does not trust this process`，设置页会标记需要权限并提供系统设置入口。两端内置版本统一为 `1.27.0`。
+Windows 安装包会自动放行 TCP `24800`。macOS 首次仍需在「隐私与安全性」中授予辅助功能、输入监控和本地网络权限；修改后点设置页「重启键鼠共享」。若日志出现 `assistive devices does not trust this process`、`process is not trusted anymore` 或 `failed to create quartz event tap`，设置页会标记需要权限，并在本次运行首次发现时自动打开一次辅助功能设置，同时提供「打开辅助功能设置」「打开输入监控设置」两个入口。两端内置版本统一为 `1.27.0`。
 
 QuickSwitch 注册热键时使用 `suppress=False`，所以内置核心能收到同一个热键；`deskflow_bridge.py` 会把 `config.json` 的热键转换成 Deskflow 的 `keystroke(...) = switchToScreen(...)` 配置，无需在客户端里重复设置。
 
@@ -367,7 +371,7 @@ python3 main.py --gen-secret
 
 ```
 python3 main.py --status
-  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=2.0.0）
+  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=2.0.1）
   密钥校验     : 已通过（hmac-sha256）
 ```
 
@@ -399,8 +403,8 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe` + NSIS 安装包（自带 Python 运行时、`ui/` 和 `deskflow\` 便携版） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` + `installer.nsi` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`、WKWebView 桥接依赖和嵌套 `Deskflow.app`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `2.0.0`），
-spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`2.0.0.0`），不会两处漂移。
+两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.0.1`）用于运行时与 macOS
+`CFBundleShortVersionString`；Windows 的 `packaging/version_info.txt` 是静态版本资源，发布时需要同步更新。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
 
@@ -434,7 +438,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-2.0.0.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-2.0.1.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -486,7 +490,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 ```bash
 python3 packaging/fetch-deskflow.py --target macos-arm64
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-2.0.0-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-2.0.1-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
@@ -494,7 +498,7 @@ Windows 安装包在 Windows 构建机上生成：
 ```powershell
 python packaging\fetch-deskflow.py --target windows-x64
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=2.0.0 packaging\installer.nsi
+makensis /DVERSION=2.0.1 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后先在 macOS/Windows
@@ -506,8 +510,8 @@ macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v2.0.0
-git push origin v2.0.0
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -552,8 +556,9 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v2.0.0` 将官方 Deskflow 无界面核心直接集成到 QuickSwitch，macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v2.0.1` 继续内置官方 Deskflow 无界面核心，并修复 Windows 终端闪动与键鼠共享连接状态展示；macOS 安装包仅提供 Apple Silicon（arm64）。
 
+- **v2.0.1**：Windows 运行时所有控制台子进程（`tasklist`、`taskkill`、`netstat`、DDC 回退工具和设置窗口）统一使用 `CREATE_NO_WINDOW`，修复启动后终端窗口反复闪动。新增键鼠共享可读状态：主界面显示「已连接 / 等待连接 / 连接异常 / 未运行」，详情展示活动 TCP 连接数、最近错误；连接成功依据真实 `ESTABLISHED` 连接或 Deskflow 本次日志，而不是只看核心进程是否存活。
 - **v2.0.0**：官方 Deskflow 1.27.0 无界面核心随 QuickSwitch 打包，不再要求用户安装或打开 Deskflow 客户端。应用自动按平台选择服务端/客户端、发现 Windows 地址、生成共享配置并管理核心进程；键鼠共享、热键、端口和屏幕方向可在设置页即时调整。Windows 安装包内置核心并放行 TCP 24800，macOS App 内置官方 `Deskflow.app`，退出 QuickSwitch 时同步停止核心。设置页新增键鼠共享状态、日志和 macOS 权限引导；全新大版本保留 DDC、6 位配对码、配置向导与 Windows DPI 修复。
 - **v1.0.3**：Windows 原生 DDC 会先按 `display_index` 选择物理显示器，失败后继续尝试其它显示器；读取失败/写入失败会记录具体 WinError。新增 `--ddc-selftest`（读取当前输入源并写回同一个值，不改变画面）；DDC 错误日志、配置向导、`--status` 和安装文档会直接说明如何在 OSD 中开启 DDC/CI。Windows 安装包新增 UDP 8766 自动发现防火墙规则。157 项测试通过。
 - **已验证**：首次启动自动打开四步配置向导（连接 / 安全 / 显示器 / 完成）；
@@ -570,7 +575,7 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
   Windows 自动使用 `server` 角色。
 - **已验证（Windows 高 DPI 配置）**：Windows EXE manifest 声明 Per-Monitor V2，
   `settings_window.py` 在 WebView2 创建前提供运行时兜底；manifest 解析和专项测试通过。
-- **发布产物**：GitHub Actions 在 `v2.0.0` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **发布产物**：GitHub Actions 在 `v2.0.1` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；
@@ -700,8 +705,8 @@ python3 main.py --status          # 应显示「密钥校验：已通过（hmac-
 | --- | --- |
 | 启动报「监听端口 8765 不可用」 | 已有一个 QuickSwitch 在跑（退出码 3）；或改 `listen_port` |
 | 按热键无反应 | 需管理员权限（用 `install-task.ps1` 或「以管理员身份运行」）；检查是否与其他软件抢占热键；`--log-level DEBUG` 看是否注册成功 |
-| QuickSwitch 没拉到键鼠共享核心 | 运行 `--deskflow-status` 看 `installed` / `bundled` / `managed` / `last_log`；安装包内置版应分别位于 `QuickSwitch\deskflow` 或 App 的 `Contents/Resources/deskflow`；也可在设置页点「重启键鼠共享」 |
-| 只切了显示器和键鼠之一 | 查看设置页「键鼠共享」状态和 `~/.quickswitch/deskflow/deskflow.log`；确认两端 QuickSwitch 已连接、`deskflow.port` 一致、`deskflow.mac_side` 与实际屏幕方向一致；macOS 权限不足时重启核心 |
+| QuickSwitch 没拉到键鼠共享核心 | 运行 `--deskflow-status` 看 `installed` / `bundled` / `managed` / `running` / `connected` / `last_error`；安装包内置版应分别位于 `QuickSwitch\deskflow` 或 App 的 `Contents/Resources/deskflow`；也可在设置页点「重启键鼠共享」 |
+| 只切了显示器和键鼠之一 | 先看主界面键鼠共享状态；「等待连接」表示核心运行但尚未握手，「连接异常」会显示超时/拒绝/权限原因。再检查 `~/.quickswitch/deskflow/deskflow.log`、两端 `deskflow.port` 是否一致、`deskflow.mac_side` 是否与实际屏幕方向一致；macOS 权限不足时重启核心 |
 | 显示器不切换，日志显示 DDC 失败 | 确认 `ddc.display_index`；显示器需支持并开启 DDC/CI（部分型号需在 OSD 菜单打开）；建议视频线直连、避免转接。Windows 原生 DXVA2 失败时，ControlMyMonitor 只是可选回退，不是必需依赖 |
 | Windows 提示找不到 `ControlMyMonitor.exe` | 这是旧版安装包的外部回退路径。最新版应使用原生 DXVA2；升级后重跑 `--status`，若仍看不到原生后端，检查显示器 DDC/CI 与连接方式 |
 | `--status` 显示「无法读取」 | 显示器不支持/未开启读 VCP 0x60，或当前后端不可用。此时仍可能正常发送切换，只是无法回读校验：可用 §8.1 的方法确认，或配置 `ddc.read_template` 使用支持读取的工具 |

@@ -50,7 +50,7 @@ from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 TARGETS = ("mac", "win")
 
 
@@ -422,6 +422,7 @@ class QuickSwitchApp:
         }
         self._deskflow_checked_at = 0.0
         self._deskflow_lock = threading.RLock()
+        self._permission_prompted = False
         configured_peer = str(cfg.get("peer_host") or "").strip()
         self._deskflow_peer_host = (
             "" if configured_peer.lower() in ("", "auto") else configured_peer
@@ -477,7 +478,11 @@ class QuickSwitchApp:
 
     # ---------------------------------------------------------------- Deskflow
     def _refresh_deskflow_status(self) -> Dict[str, Any]:
-        status = deskflow_bridge.snapshot(self.cfg, system=self.platform)
+        status = deskflow_bridge.snapshot(
+            self.cfg,
+            system=self.platform,
+            peer_host=self._deskflow_peer_host or None,
+        )
         with self._deskflow_lock:
             previous_detail = self.deskflow_status.get("detail", "")
             if not status.get("running") and previous_detail:
@@ -557,6 +562,21 @@ class QuickSwitchApp:
             )
         self._refresh_deskflow_status()
         self.deskflow_status["detail"] = detail
+        if self.platform == "Darwin" and self.deskflow_status.get("permission_required"):
+            self._prompt_macos_permission_once()
+
+    def _prompt_macos_permission_once(self) -> None:
+        """macOS 权限失败时只自动打开一次系统设置，避免反复抢焦点。"""
+        with self._deskflow_lock:
+            if self._permission_prompted:
+                return
+            self._permission_prompted = True
+        trusted = deskflow_bridge.prompt_macos_accessibility()
+        if trusted is False:
+            log.warning(
+                "键鼠共享需要 macOS 权限：请在「隐私与安全性 → 辅助功能 / 输入监控」"
+                "中允许 QuickSwitch；如果列表出现 Deskflow 或 deskflow-core，也一并允许。"
+            )
 
     def restart_deskflow(self, reason: str = "手动重启") -> tuple[bool, str]:
         """供托盘/设置页调用：重启内置的无界面键鼠共享核心。"""

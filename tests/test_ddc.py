@@ -7,7 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from unittest import mock
 
+import ddc as ddc_module
 from ddc import DDCSwitcher, DDCError, parse_control_my_monitor, parse_ddcutil
 
 
@@ -127,6 +129,13 @@ class CommandBuildTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_external_command_hides_windows_console(self) -> None:
+        completed = subprocess.CompletedProcess(["tool"], 0, "15\n", "")
+        with mock.patch("process_utils.platform.system", return_value="Windows"), \
+                mock.patch("ddc.subprocess.run", return_value=completed) as run:
+            self.assertEqual(ddc_module.run_command(["tool"], 1.0), (0, "15\n", ""))
+        self.assertTrue(run.call_args.kwargs["creationflags"] & 0x08000000)
+
     def test_windows_prefers_native_dxva2_backend(self) -> None:
         runner = FakeRunner([])
         switcher = DDCSwitcher(make_cfg(), system="Windows", runner=runner)
