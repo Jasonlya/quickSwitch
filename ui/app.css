@@ -1109,6 +1109,21 @@ input[type="checkbox"] {
 .setup-tool-copy strong { font-size: 11px; font-weight: 500; }
 .setup-tool-copy span { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; }
 
+.setup-help {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--fill);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.setup-help strong { color: var(--ink); font-weight: 500; }
+
 .setup-current {
   display: flex;
   align-items: center;

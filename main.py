@@ -41,7 +41,7 @@ from config import (
     save_config,
     validate,
 )
-from ddc import DEFAULT_INPUT_CANDIDATES, DDCSwitcher
+from ddc import DDC_OSD_GUIDANCE, DEFAULT_INPUT_CANDIDATES, DDCSwitcher
 from discovery import DEFAULT_PORT as DISCOVERY_DEFAULT_PORT
 from discovery import PeerDiscovery
 from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
@@ -49,7 +49,7 @@ from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 TARGETS = ("mac", "win")
 
 
@@ -910,15 +910,10 @@ async def cmd_status(cfg: Dict[str, Any], path: Path) -> int:
     print(f"  密钥校验     : {auth_line}")
     print(f"  DDC 后端     : {tool_detail}")
     if not tool_ok and ddc.system == "Windows":
-        print(
-            "  后端提示     : Windows 内置 DXVA2 不可用；请确认显示器 OSD 已开启 DDC/CI、"
-            "视频线为直连。ControlMyMonitor 仅为可选回退，不是必需依赖"
-        )
+        print(f"  后端提示     : Windows 内置 DXVA2 不可用。{DDC_OSD_GUIDANCE}")
+        print("                 ControlMyMonitor 仅为可选回退，不是必需依赖")
     elif value is None and native_ddc:
-        print(
-            "  读取提示     : 已检测到显示器，但 VCP 0x60 读取失败；"
-            "请确认显示器 OSD 已开启 DDC/CI，并尽量使用视频线直连"
-        )
+        print(f"  读取提示     : 已检测到显示器，但 VCP 0x60 读取失败。{DDC_OSD_GUIDANCE}")
     if tool_ok and native_ddc:
         print("  读取方式     : Windows 原生 DXVA2（无需外部命令）")
     elif tool_ok:
@@ -935,6 +930,39 @@ async def cmd_status(cfg: Dict[str, Any], path: Path) -> int:
     print(f"  局域网发现   : {disc_line}")
     print(f"  日志文件     : {log_file()}")
     return 0
+
+
+def cmd_ddc_selftest(cfg: Dict[str, Any], *, ddc: Optional[DDCSwitcher] = None) -> int:
+    """读取当前输入源，再写入同一个值，验证 DDC 写入链路。"""
+    switcher = ddc or DDCSwitcher(cfg, timeout=5.0, retries=1)
+    tool_ok, tool_detail = switcher.tool_available()
+    print("QuickSwitch DDC 写入自检")
+    print(f"  DDC 后端   : {tool_detail}")
+    if switcher.system == "Windows":
+        print(f"  display_index: {switcher.ddc_cfg.get('display_index', 1)}")
+
+    current = switcher.get_input()
+    if current is None:
+        target_value = switcher.win_input if switcher.system == "Windows" else switcher.mac_input
+        print(f"  当前输入源 : 读取失败，改用当前系统输入源 {target_value} 做写入测试")
+    else:
+        target_value = current
+        print(f"  当前输入源 : {current}（将写入同一个值，不会改变画面）")
+
+    if not tool_ok:
+        print("  结果       : DDC 后端不可用，写入测试仍会继续")
+    sent = switcher.set_input(target_value)
+    if sent:
+        print(f"  写入结果   : 成功（VCP 0x60 = {target_value}）")
+        return 0
+
+    print("  写入结果   : 失败")
+    native_error = switcher.native_error()
+    if native_error:
+        print(f"  原生错误   : {native_error}")
+    print(f"  处理建议   : {DDC_OSD_GUIDANCE}")
+    print(f"  日志文件   : {log_file()}")
+    return 1
 
 
 async def run_once(
@@ -1081,7 +1109,8 @@ def cmd_detect_inputs(
     print(f"  DDC 后端   : {tool_detail}")
     if not tool_ok:
         if mac_input is None or win_input is None:
-            print("  DDC 后端不可用，无法切换/回读；请先确认显示器 DDC/CI 已开启，")
+            print("  DDC 后端不可用，无法切换/回读。")
+            print(f"  开启方法   : {DDC_OSD_GUIDANCE}")
             if switcher.system == "Windows":
                 print("  Windows 内置 DXVA2 未检测到可用显示器；ControlMyMonitor 只是可选回退。")
             print("  再用 --mac-input / --win-input 指定（可只写配置，稍后再校准）。")
@@ -1093,7 +1122,8 @@ def cmd_detect_inputs(
     if current is None:
         print("  当前输入源 : 读取失败")
         if switcher.system == "Windows":
-            print("    Windows 默认使用内置 DXVA2；确认显示器 OSD 已开启 DDC/CI、视频线为直连。")
+            print("    Windows 默认使用内置 DXVA2。")
+            print(f"    开启方法：{DDC_OSD_GUIDANCE}")
             print("    可选回退：安装 ControlMyMonitor，并填写 ddc.controlmyMonitor_path。")
         else:
             print("    可用读取方式：m1ddc get input、ddcutil getvcp 60；")
@@ -1230,6 +1260,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--once", choices=TARGETS, metavar="{mac,win}",
                         help="执行一次切换后退出（验证 DDC 与对端通知）")
     parser.add_argument("--status", action="store_true", help="打印配置、DDC 后端与对端连通性后退出")
+    parser.add_argument("--ddc-selftest", action="store_true",
+                        help="读取当前输入源并写入同一个值，测试 DDC 写入链路")
     parser.add_argument("--print-config", action="store_true", help="打印合并默认值后的生效配置")
     parser.add_argument("--init-config", action="store_true", help="生成默认配置文件后退出")
     parser.add_argument("--gen-secret", action="store_true",
@@ -1303,6 +1335,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.status:
         try:
             return asyncio.run(cmd_status(cfg, path))
+        except KeyboardInterrupt:
+            return 130
+    if args.ddc_selftest:
+        try:
+            return cmd_ddc_selftest(cfg)
         except KeyboardInterrupt:
             return 130
     if args.detect_inputs:

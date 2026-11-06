@@ -12,6 +12,7 @@ import contextlib
 import ctypes
 import logging
 import sys
+import time
 from ctypes import wintypes
 from typing import Iterator, List, Optional, Tuple
 
@@ -101,6 +102,8 @@ class WindowsNativeDDC:
     def __init__(self, display_index: int = 1, *, api=None) -> None:
         self.display_index = max(1, int(display_index))
         self._api_override = api
+        self.last_error = ""
+        self.last_success = ""
 
     def _api(self):
         return self._api_override or _load_api()
@@ -109,15 +112,22 @@ class WindowsNativeDDC:
     def _physical_monitors(self) -> Iterator[List[Tuple[int, int, str]]]:
         user32, dxva2 = self._api()
         groups: List[Tuple[object, int]] = []
+        errors: List[str] = []
+        self.last_error = ""
+
+        def fail(action: str) -> None:
+            errors.append(self._win_error(action))
 
         def callback(hmonitor, _hdc, _rect, _data):
             count = wintypes.DWORD()
             if not dxva2.GetNumberOfPhysicalMonitorsFromHMONITOR(hmonitor, ctypes.byref(count)):
+                fail("读取物理显示器数量")
                 return True
             if count.value == 0:
                 return True
             monitors = (PHYSICAL_MONITOR * count.value)()
             if not dxva2.GetPhysicalMonitorsFromHMONITOR(hmonitor, count.value, monitors):
+                fail("获取物理显示器句柄")
                 return True
             groups.append((monitors, count.value))
             return True
@@ -140,6 +150,8 @@ class WindowsNativeDDC:
             for monitors, count in groups:
                 with contextlib.suppress(Exception):
                     dxva2.DestroyPhysicalMonitors(count, monitors)
+        if errors:
+            self.last_error = "；".join(errors)
 
     def monitors(self) -> List[Tuple[int, int, str]]:
         """返回 ``(序号, 物理显示器句柄, 描述)``；句柄只在返回前有效，供状态展示用。"""
@@ -158,46 +170,97 @@ class WindowsNativeDDC:
         if entries:
             names = "、".join(item[2] for item in entries)
             return True, f"Windows 原生 DDC（DXVA2）已检测到 {len(entries)} 个显示器：{names}"
-        return False, "Windows 原生 DDC（DXVA2）未检测到可用显示器"
+        detail = "Windows 原生 DDC（DXVA2）未检测到可用显示器"
+        if self.last_error:
+            detail += f"（{self.last_error}）"
+        return False, detail
 
-    def _target(self, entries: List[Tuple[int, int, str]]) -> Optional[int]:
-        if not entries:
-            return None
-        for index, handle, _description in entries:
-            if index == self.display_index:
-                return handle
-        return entries[0][1]
+    def _ordered_targets(
+        self, entries: List[Tuple[int, int, str]]
+    ) -> List[Tuple[int, int, str]]:
+        """优先使用配置的 display_index，失败后继续尝试其它物理显示器。"""
+        selected = [item for item in entries if item[0] == self.display_index]
+        others = [item for item in entries if item[0] != self.display_index]
+        return selected + others
+
+    def _win_error(self, action: str) -> str:
+        getter = getattr(ctypes, "get_last_error", None)
+        code = int(getter() or 0) if callable(getter) else 0
+        if not code:
+            return f"{action} 失败（Windows 未返回错误码）"
+        formatter = getattr(ctypes, "FormatError", None)
+        message = ""
+        if callable(formatter):
+            with contextlib.suppress(Exception):
+                message = str(formatter(code)).strip()
+        suffix = f"：{message}" if message else ""
+        return f"{action} 失败（WinError {code}{suffix}）"
 
     def get_input(self) -> Optional[int]:
+        errors: List[str] = []
         try:
             _user32, dxva2 = self._api()
             with self._physical_monitors() as entries:
-                handle = self._target(entries)
-                if not handle:
+                if not entries:
+                    self.last_error = self.last_error or "未枚举到物理显示器"
                     return None
-                code = wintypes.DWORD()
-                current = wintypes.DWORD()
-                maximum = wintypes.DWORD()
-                ok = dxva2.GetVCPFeatureAndVCPFeatureReply(
-                    handle,
-                    VCP_INPUT,
-                    ctypes.byref(code),
-                    ctypes.byref(current),
-                    ctypes.byref(maximum),
-                )
-                return int(current.value) if ok else None
+                for index, handle, description in self._ordered_targets(entries):
+                    code = wintypes.DWORD()
+                    current = wintypes.DWORD()
+                    maximum = wintypes.DWORD()
+                    ok = dxva2.GetVCPFeatureAndVCPFeatureReply(
+                        handle,
+                        VCP_INPUT,
+                        ctypes.byref(code),
+                        ctypes.byref(current),
+                        ctypes.byref(maximum),
+                    )
+                    if ok:
+                        self.last_error = ""
+                        return int(current.value)
+                    errors.append(f"显示器 {index}（{description}）{self._win_error('读取 VCP 0x60')}")
+                self.last_error = "；".join(errors)
+                return None
         except OSError as exc:
             log.debug("Windows 原生 DDC 读取失败：%s", exc)
+            self.last_error = str(exc)
             return None
 
     def set_input(self, value: int) -> bool:
+        errors: List[str] = []
         try:
             _user32, dxva2 = self._api()
             with self._physical_monitors() as entries:
-                handle = self._target(entries)
-                if not handle:
+                if not entries:
+                    self.last_error = self.last_error or "未枚举到物理显示器"
                     return False
-                return bool(dxva2.SetVCPFeature(handle, VCP_INPUT, int(value)))
+                for index, handle, description in self._ordered_targets(entries):
+                    # 先做一次 VCP 读取：部分显示器的 DDC 通道在首次访问时才唤醒，
+                    # 而且如果画面已经在目标输入源，可以避免不必要的写入。
+                    code = wintypes.DWORD()
+                    current = wintypes.DWORD()
+                    maximum = wintypes.DWORD()
+                    if dxva2.GetVCPFeatureAndVCPFeatureReply(
+                        handle,
+                        VCP_INPUT,
+                        ctypes.byref(code),
+                        ctypes.byref(current),
+                        ctypes.byref(maximum),
+                    ) and int(current.value) == int(value):
+                        self.last_success = f"显示器 {index}（{description}）已在输入源 {value}"
+                        self.last_error = ""
+                        return True
+                    if dxva2.SetVCPFeature(handle, VCP_INPUT, int(value)):
+                        self.last_success = f"显示器 {index}（{description}）"
+                        self.last_error = ""
+                        log.info("Windows 原生 DDC 写入 %s 成功：%s", value, self.last_success)
+                        return True
+                    errors.append(f"显示器 {index}（{description}）{self._win_error('写入 VCP 0x60')}")
+                    time.sleep(0.12)
+                self.last_error = "；".join(errors)
+                log.warning("Windows 原生 DDC 写入 %s 失败：%s", value, self.last_error)
+                return False
         except OSError as exc:
             log.debug("Windows 原生 DDC 写入失败：%s", exc)
+            self.last_error = str(exc)
             return False

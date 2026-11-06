@@ -53,6 +53,7 @@ class FakeNativeDDC:
         self.works = works
         self.detected = detected
         self.set_calls: List[int] = []
+        self.last_error = ""
 
     def available(self):
         return self.detected
@@ -66,6 +67,7 @@ class FakeNativeDDC:
     def set_input(self, value: int) -> bool:
         self.set_calls.append(value)
         if not self.works:
+            self.last_error = "写入 VCP 0x60 失败（WinError 31）"
             return False
         self.value = value
         return True
@@ -159,6 +161,23 @@ class ExecutionTests(unittest.TestCase):
         self.assertIsNone(switcher.get_input())
         self.assertFalse(switcher.set_input(15))
         self.assertEqual(runner.calls, [])
+
+    def test_windows_native_failure_logs_how_to_enable_ddc_ci(self) -> None:
+        missing = str(Path(tempfile.gettempdir()) / "quickswitch-missing-controlmymonitor.exe")
+        switcher = DDCSwitcher(
+            make_cfg(controlmyMonitor_path=missing), system="Windows", runner=FakeRunner([])
+        )
+        switcher._native = FakeNativeDDC(works=False)
+        switcher._native_ready = True
+
+        with self.assertLogs("ddc", level="ERROR") as captured:
+            self.assertFalse(switcher.set_input(15))
+
+        message = "\n".join(captured.output)
+        self.assertIn("WinError 31", message)
+        self.assertIn("OSD", message)
+        self.assertIn("DDC/CI", message)
+        self.assertIn("System", message)
 
     def test_windows_native_unavailable_without_fallback_does_not_run_missing_tool(self) -> None:
         missing = str(Path(tempfile.gettempdir()) / "quickswitch-missing-controlmymonitor.exe")

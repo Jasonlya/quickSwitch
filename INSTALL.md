@@ -39,6 +39,29 @@
 | m1ddc | macOS 侧 DDC/CI 工具 | 必须（macOS 端） |
 | LocalSend / Tailscale | 传文件 / 固定虚拟 IP | 可选 |
 
+### 1.1 开启显示器 DDC/CI
+
+DDC/CI 是显示器自己的功能，开关在**显示器 OSD 菜单**里，不在 Windows「显示设置」里。
+不同品牌的菜单名称和位置不同，按下面顺序找：
+
+1. 按显示器底部、侧面或背面的实体按键/摇杆，呼出 OSD 菜单。
+2. 进入「系统 / System」「设置 / Settings」「其他设置 / Other Settings」「OSD 设置 / OSD Setup」或「管理 / Management」。
+3. 找到「DDC/CI」并设为「开 / On」。有些显示器会写成 **DDC/CI Support**、**Monitor Control**、**MCCS** 或 **Display Data Channel**。
+4. 保存并退出菜单，等 5 秒后再回到 QuickSwitch 读取/切换。
+
+常见品牌的大致位置（仅作参考，实际以显示器菜单为准）：
+
+| 品牌 | 常见路径 |
+| --- | --- |
+| Dell | Menu → Others → DDC/CI |
+| LG | Settings → General → DDC/CI |
+| BenQ | Menu → System → Other Settings → DDC/CI |
+| ASUS | Menu → System Setup → DDC/CI |
+| HP | Menu → Management → DDC/CI |
+| AOC / Philips | Menu → OSD Setup / Settings → DDC/CI |
+
+如果菜单里完全没有 DDC/CI 选项，先把视频线直连显示器，绕开 KVM、扩展坞和切换器再试；仍找不到时，说明该显示器可能不支持 DDC/CI，无法用 QuickSwitch 切换输入源。
+
 ---
 
 ## 2. 安装
@@ -71,7 +94,7 @@ QuickSwitch macOS 版只支持 Apple Silicon（M1/M2/M3/M4），不再提供 Int
 
 1. 下载并双击最新 Release 里的 `QuickSwitch-Setup-*.exe`，在 UAC 提示中点「是」。
 2. 未签名版本首次运行可能弹 SmartScreen：点「更多信息」→「仍要运行」。
-3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765，并写入卸载入口。
+3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765（切换通知）和 UDP 8766（自动发现），并写入卸载入口。
 4. 从桌面或开始菜单启动 QuickSwitch；首次运行会自动弹出配置向导。
 5. Windows 全局热键需要管理员权限，快捷方式已设置为以管理员身份运行；每次启动出现 UAC 时点「是」即可。
 
@@ -178,7 +201,7 @@ python3 main.py --gen-secret
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.2）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.3）
 密钥校验     : 已通过（hmac-sha256）
 DDC 后端     : 已找到 /opt/homebrew/bin/m1ddc
 ```
@@ -280,6 +303,7 @@ Unregister-ScheduledTask -TaskName QuickSwitch -Confirm:$false
 
 ```powershell
 Remove-NetFirewallRule -DisplayName "QuickSwitch"
+Remove-NetFirewallRule -DisplayName "QuickSwitch Discovery"
 ```
 
 ---
@@ -292,9 +316,10 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch"
 | macOS 提示 app「已损坏」 | 隔离属性。本地自测执行 `xattr -dr com.apple.quarantine /Applications/QuickSwitch.app` |
 | Windows 首次运行弹 SmartScreen | 未签名。更多信息 → 仍要运行；正式分发需代码签名 |
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高；新版已启用 Per-Monitor V2 DPI 感知。必要时更新 Microsoft Edge WebView2 Runtime |
+| Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 里运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`；它会读当前输入源并写回同一个值，不改变画面。把输出的「原生错误」、处理建议和日志一起保留 |
 | 网页打不开 | 端口 8767 被占，或被 `--no-web` 关了；去日志里看实际地址与令牌 |
 | 首次启动设置窗口晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
-| 点切换没反应 | 确认显示器 OSD 已开启 DDC/CI、视频线为直连；Windows 先看 `--status` 的 DDC 后端是否为 DXVA2，macOS 检查 `ddc.m1ddc_path`；再确认输入源取值 |
+| 点切换没反应 / 找不到 DDC/CI | 按显示器机身按钮或摇杆打开 OSD 菜单，在「系统 / 设置 / 其他设置 / OSD 设置 / 管理」里找「DDC/CI」（也可能叫 DDC/CI Support、Monitor Control、MCCS），设为「开 / On」；保存后等 5 秒。详细路径见 [1.1 开启显示器 DDC/CI](#11-开启显示器-ddcci)。Windows 再看 `--status` 的 DDC 后端是否为 DXVA2，macOS 检查 `ddc.m1ddc_path` |
 | Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包会尝试该外部回退。最新版 Windows 使用内置 DXVA2，不需要该文件；ControlMyMonitor 仅是可选的补充回退 |
 | 显示器切了但键鼠没过去 | Deskflow 的问题：检查两端 Deskflow 连接与热键 |
 | 对端未连接 | IP / 端口、防火墙、对端没运行。`--status` 会写明「连接失败」 |

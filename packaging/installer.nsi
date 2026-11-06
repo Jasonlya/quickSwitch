@@ -1,5 +1,5 @@
 ; QuickSwitch Windows 安装包（NSIS 3.x）
-; 构建：makensis /DVERSION=1.0.2 packaging\installer.nsi
+; 构建：makensis /DVERSION=1.0.3 packaging\installer.nsi
 ; 产物：dist\QuickSwitch-Setup-<VERSION>.exe
 ; 说明：需要先由 packaging\quickswitch.spec 产出 dist\QuickSwitch.exe
 
@@ -7,7 +7,7 @@
 !include "FileFunc.nsh"
 
 !ifndef VERSION
-  !define VERSION "1.0.2"
+  !define VERSION "1.0.3"
 !endif
 
 !define APPNAME   "QuickSwitch"
@@ -85,6 +85,8 @@ Section "QuickSwitch 主程序" SecMain
     ; 放行局域网端口（切换通知需要）
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch"'
     nsExec::ExecToLog 'netsh advfirewall firewall add rule name="QuickSwitch" dir=in action=allow protocol=TCP localport=8765'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch Discovery"'
+    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="QuickSwitch Discovery" dir=in action=allow protocol=UDP localport=8766'
 
     ; 快捷方式以管理员身份运行：Windows 端注册全局热键需要
     WriteRegStr HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" \
@@ -105,6 +107,7 @@ Section "Uninstall"
     Delete "$DESKTOP\QuickSwitch.lnk"
 
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch Discovery"'
 
     DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${APPEXE}"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuickSwitch"

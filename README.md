@@ -27,7 +27,7 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 | 需要准备 | 作用 | 在哪里获取 |
 | --- | --- | --- |
 | Deskflow | 让一套键鼠控制两台电脑 | [deskflow.org](https://deskflow.org/) |
-| 显示器 DDC/CI | 允许电脑切换显示器的输入源 | 在显示器 OSD 菜单中开启 DDC/CI；多数型号默认开启 |
+| 显示器 DDC/CI | 允许电脑切换显示器的输入源 | 按显示器机身按钮打开 OSD 菜单，在「系统 / 设置 / 其他设置」里找 DDC/CI；多数型号默认开启，详细路径见 [INSTALL.md](INSTALL.md#11-开启显示器-ddcci) |
 
 键鼠接在 Windows 上时：Windows 的 Deskflow 选 **Server**，Mac 的 Deskflow 选 **Client**。
 
@@ -58,10 +58,11 @@ Windows 端已内置原生 DDC（DXVA2），**不需要安装 ControlMyMonitor**
 | --- | --- |
 | macOS 提示「无法验证开发者」 | 右键 App →「打开」→「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」 |
 | Windows 提示 SmartScreen | 点「更多信息」→「仍要运行」 |
-| 对端一直显示未连接 | 确认两台电脑在同一局域网、端口都是 `8765`、防火墙已放行；macOS 允许 QuickSwitch 访问本地网络 |
-| 点切换没有反应 | Windows 端确认显示器 OSD 已开启 DDC/CI、视频线为直连；Mac 端确认 `ddc.m1ddc_path` 正确。再用设置页的「探测输入源」确认取值 |
+| 对端一直显示未连接 | 确认两台电脑在同一局域网；Windows 防火墙已放行 TCP `8765` 和自动发现用的 UDP `8766`；macOS 允许 QuickSwitch 访问本地网络 |
+| 点切换没有反应 / 找不到 DDC/CI | 按显示器机身的按钮或摇杆打开 OSD 菜单（不是 Windows 显示设置），在「系统 / 设置 / 其他设置 / OSD 设置 / 管理」里找「DDC/CI」（也可能叫 DDC/CI Support、Monitor Control、MCCS 或 Display Data Channel），设为「开 / On」，保存后等 5 秒再试。仍无效时改用直连视频线，绕开 KVM、扩展坞或切换器 |
 | Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包的回退路径。最新版使用 Windows 内置 DXVA2，不需要该文件；升级后重试，ControlMyMonitor 仅作为可选回退 |
 | Windows 设置窗口字体模糊 | 升级到 `v1.0.2` 或更高版本；该版本启用 Per-Monitor V2 DPI 感知。升级后仍模糊时，检查 Windows 显示缩放并更新 WebView2 Runtime |
+| Windows DDC 切换报错 | 错误日志会直接列出 OSD 开启步骤。仍失败时在 cmd 运行 `"C:\Program Files\QuickSwitch\QuickSwitch.exe" --ddc-selftest`，先做不改变画面的写入自检；输出会包含具体 WinError 和处理建议 |
 | 显示器切了但键鼠没过去 | 这是 Deskflow 的连接或热键配置问题，不是 QuickSwitch 负责的范围 |
 | 想查看日志 | macOS：`~/.quickswitch/quickswitch.log`；Windows：`%USERPROFILE%\.quickswitch\quickswitch.log` |
 | 想卸载 | macOS 删除「应用程序」里的 QuickSwitch；Windows 用「设置 → 应用 → QuickSwitch → 卸载」。用户配置默认保留 |
@@ -77,8 +78,8 @@ Windows 端已内置原生 DDC（DXVA2），**不需要安装 ControlMyMonitor**
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

@@ -27,6 +27,19 @@ log = logging.getLogger("ddc")
 
 VCP_INPUT = "0x60"
 
+# 显示器 OSD 菜单名称因品牌/型号而异；把步骤放在统一文案里，错误日志和
+# 配置向导都能直接给出可执行的开启方法，而不是只提示「检查 DDC/CI」。
+DDC_OSD_GUIDANCE = (
+    "OSD 是显示器自带的屏幕菜单，不是电脑系统的显示设置。"
+    "按显示器底部、侧面或背面的实体按键/摇杆打开菜单，"
+    "依次查看「系统 / System」「设置 / Settings」「其他设置 / Other Settings」"
+    "「OSD 设置 / OSD Setup」或「管理 / Management」，"
+    "找到「DDC/CI」（也可能写成 DDC/CI Support、Monitor Control、MCCS 或 "
+    "Display Data Channel），设为「开 / On」并保存退出，等 5 秒再重试。"
+    "如果菜单里完全没有这个选项，可能是显示器不支持 DDC/CI，"
+    "或该功能只在特定输入接口/模式下出现；请换直连视频线再确认。"
+)
+
 # VCP 0x60 常见取值：VGA1=1 DVI1=3 DP1=15 DP2=16 HDMI1=17 HDMI2=18 USB-C=27
 DEFAULT_INPUT_CANDIDATES: List[int] = [1, 3, 15, 16, 17, 18, 27]
 
@@ -208,6 +221,10 @@ class DDCSwitcher:
         """Windows 是否正在使用内置 DXVA2 后端。"""
         return self._native_available()
 
+    def native_error(self) -> str:
+        """最近一次 Windows 原生 DDC 操作的具体错误。"""
+        return str(getattr(self._native, "last_error", "") or "")
+
     def tool_path(self) -> str:
         key = TOOL_KEYS.get(self.system, "")
         configured = self.ddc_cfg.get(key) if key else None
@@ -320,17 +337,36 @@ class DDCSwitcher:
             if self.dry_run:
                 log.info("[dry-run] %s：Windows 原生 DDC（DXVA2）", what)
                 return True
-            if self._native is not None and self._native.set_input(int(value)):
-                log.info("%s：Windows 原生 DDC（DXVA2）成功", what)
-                return True
+            native_detail = ""
+            attempts = self.retries + 1
+            for attempt in range(1, attempts + 1):
+                if self._native is not None and self._native.set_input(int(value)):
+                    log.info("%s：Windows 原生 DDC（DXVA2）成功", what)
+                    return True
+                native_detail = self.native_error() or "未返回具体错误"
+                if attempt < attempts:
+                    log.log(
+                        logging.DEBUG if self._quiet else logging.WARNING,
+                        "%s：Windows 原生 DDC 第 %s/%s 次失败：%s，%.1fs 后重试",
+                        what,
+                        attempt,
+                        attempts,
+                        native_detail,
+                        self.retry_delay,
+                    )
+                    if self.retry_delay:
+                        time.sleep(self.retry_delay)
             external_ok, external_detail = self._external_tool_status()
             if not external_ok:
                 log.error(
-                    "%s：Windows 原生 DDC（DXVA2）失败，且没有可用的外部回退工具（%s）。"
-                    "请确认显示器 OSD 已启用 DDC/CI、视频线为直连；"
-                    "如仍需外部回退，可选安装 ControlMyMonitor 并配置 ddc.controlmyMonitor_path",
+                    "%s：Windows 原生 DDC（DXVA2）失败（%s），且没有可用的外部回退工具（%s）。\n"
+                    "  %s\n"
+                    "  同时请确认视频线直连显示器（绕开 KVM / 扩展坞 / 切换器）；"
+                    "若本机 DDC 仍失败，请保持 Mac 端 QuickSwitch 在线，让对端 DDC 尝试切换",
                     what,
+                    native_detail,
                     external_detail,
+                    DDC_OSD_GUIDANCE,
                 )
                 return False
             log.warning(
@@ -342,11 +378,14 @@ class DDCSwitcher:
             external_ok, external_detail = self._external_tool_status()
             if not external_ok:
                 log.error(
-                    "%s：Windows 原生 DDC（DXVA2）未检测到可用显示器，且没有外部回退工具（%s）。"
-                    "请确认显示器已连接、OSD 已启用 DDC/CI，并尽量使用视频线直连；"
-                    "如仍需外部回退，可选安装 ControlMyMonitor 并配置 ddc.controlmyMonitor_path",
+                    "%s：Windows 原生 DDC（DXVA2）未检测到可用显示器（%s），且没有外部回退工具（%s）。\n"
+                    "  %s\n"
+                    "  同时请确认显示器已连接，并尽量使用视频线直连；"
+                    "若本机 DDC 仍失败，请保持 Mac 端 QuickSwitch 在线，让对端 DDC 尝试切换",
                     what,
+                    self.native_error() or "未返回具体错误",
                     external_detail,
+                    DDC_OSD_GUIDANCE,
                 )
                 return False
             log.info(
@@ -500,4 +539,8 @@ class DDCSwitcher:
                 self._native_ready = True
                 return True, native_detail
             self._native_ready = False
+            external_ok, external_detail = self._external_tool_status()
+            if not external_ok:
+                return False, f"{native_detail}；外部回退：{external_detail}"
+            return True, f"{external_detail}（原生 DDC 不可用，使用外部回退）"
         return self._external_tool_status()
