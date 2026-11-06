@@ -1,5 +1,5 @@
 ; QuickSwitch Windows 安装包（NSIS 3.x）
-; 构建：makensis /DVERSION=2.0.2 packaging\installer.nsi
+; 构建：makensis /DVERSION=2.0.3 packaging\installer.nsi
 ; 产物：dist\QuickSwitch-Setup-<VERSION>.exe
 ; 说明：需要先由 packaging\quickswitch.spec 产出 dist\QuickSwitch.exe
 
@@ -7,7 +7,7 @@
 !include "FileFunc.nsh"
 
 !ifndef VERSION
-  !define VERSION "2.0.2"
+  !define VERSION "2.0.3"
 !endif
 
 !define APPNAME   "QuickSwitch"
@@ -60,6 +60,14 @@ Section "QuickSwitch 主程序" SecMain
     SetRegView 64
     SetShellVarContext all
     SetOutPath "$INSTDIR"
+
+    ; 覆盖安装前先结束旧进程。Windows 不允许覆盖正在运行的 exe；旧实现只让
+    ; 用户手动退出，升级后可能仍在运行 v2.0.1，看起来像修复没有生效。
+    DetailPrint "正在关闭正在运行的 QuickSwitch..."
+    nsExec::ExecToLog 'taskkill /F /IM QuickSwitch.exe /T'
+    nsExec::ExecToLog 'taskkill /F /IM deskflow-core.exe /T'
+    Sleep 800
+
     File "${DISTDIR}${DISTSEP}${APPEXE}"
     File "icon.ico"
     File "${PROJECTDIR}${DISTSEP}THIRD_PARTY_NOTICES.md"
@@ -106,6 +114,9 @@ SectionEnd
 Section "Uninstall"
     SetRegView 64
     SetShellVarContext all
+    nsExec::ExecToLog 'taskkill /F /IM QuickSwitch.exe /T'
+    nsExec::ExecToLog 'taskkill /F /IM deskflow-core.exe /T'
+    Sleep 500
     Delete "$INSTDIR\${APPEXE}"
     Delete "$INSTDIR\icon.ico"
     Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"

@@ -126,12 +126,13 @@ class CommandTests(unittest.TestCase):
 
 
 class _Process:
-    def __init__(self) -> None:
+    def __init__(self, *, exits: bool = False) -> None:
         self.terminated = False
         self.killed = False
+        self.exits = exits
 
     def poll(self):
-        return None
+        return 1 if self.terminated or self.exits else None
 
     def terminate(self) -> None:
         self.terminated = True
@@ -151,7 +152,9 @@ class SettingsWindowTests(unittest.TestCase):
 
     def test_reuses_one_window_process(self) -> None:
         process = _Process()
-        window = settings_window.SettingsWindow("http://127.0.0.1:8767/")
+        window = settings_window.SettingsWindow(
+            "http://127.0.0.1:8767/", startup_grace=0
+        )
         with mock.patch.object(settings_window, "webview_available", return_value=True), \
                 mock.patch.object(settings_window.subprocess, "Popen", return_value=process) as popen:
             self.assertTrue(window.open())
@@ -169,13 +172,33 @@ class SettingsWindowTests(unittest.TestCase):
 
     def test_window_process_is_spawned_without_console_or_hidden_gui(self) -> None:
         process = _Process()
-        window = settings_window.SettingsWindow("http://127.0.0.1:8767/")
+        window = settings_window.SettingsWindow(
+            "http://127.0.0.1:8767/", startup_grace=0
+        )
         with mock.patch.object(settings_window, "webview_available", return_value=True), \
                 mock.patch("process_utils.platform.system", return_value="Windows"), \
                 mock.patch.object(settings_window.subprocess, "Popen", return_value=process) as popen:
             self.assertTrue(window.open())
         self.assertTrue(popen.call_args.kwargs["creationflags"] & 0x08000000)
         self.assertNotIn("startupinfo", popen.call_args.kwargs)
+
+    def test_alive_window_process_counts_as_opened(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = settings_window.subprocess.TimeoutExpired("QuickSwitch", 1.2)
+        window = settings_window.SettingsWindow("http://127.0.0.1:8767/")
+        with mock.patch.object(settings_window, "webview_available", return_value=True), \
+                mock.patch.object(settings_window.subprocess, "Popen", return_value=process):
+            self.assertTrue(window.open())
+        process.wait.assert_called_once_with(timeout=settings_window.STARTUP_GRACE_SECONDS)
+
+    def test_immediately_exiting_window_process_falls_back(self) -> None:
+        process = mock.Mock()
+        process.wait.return_value = 1
+        window = settings_window.SettingsWindow("http://127.0.0.1:8767/")
+        with mock.patch.object(settings_window, "webview_available", return_value=True), \
+                mock.patch.object(settings_window.subprocess, "Popen", return_value=process):
+            self.assertFalse(window.open())
+        self.assertIsNone(window._process)
 
 
 if __name__ == "__main__":

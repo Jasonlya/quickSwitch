@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import contextlib
+import logging
 import subprocess
 import sys
 import webbrowser
@@ -16,11 +17,16 @@ from urllib.parse import urlparse
 
 from process_utils import windowed_subprocess_kwargs
 
+log = logging.getLogger("settings_window")
+
 TITLE = "QuickSwitch 设置"
 WIDTH = 1120
 HEIGHT = 820
 MIN_SIZE = (780, 560)
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# PyInstaller onefile 的启动器会先解包再运行 Python；子进程在短时间内退出，
+# 基本可以直接判定 WebView 初始化失败。成功创建的窗口会持续运行。
+STARTUP_GRACE_SECONDS = 1.2
 
 
 def enable_windows_high_dpi() -> bool:
@@ -131,8 +137,9 @@ def run_settings_window(url: str) -> int:
 class SettingsWindow:
     """管理唯一的设置窗口子进程；重复点击托盘不会叠加窗口。"""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, startup_grace: float = STARTUP_GRACE_SECONDS) -> None:
         self.url = url
+        self.startup_grace = max(0.0, float(startup_grace))
         self._process: Optional[subprocess.Popen] = None
 
     def open(self) -> bool:
@@ -149,7 +156,23 @@ class SettingsWindow:
                 close_fds=True,
                 **windowed_subprocess_kwargs(),
             )
-        except OSError:
+        except OSError as exc:
+            log.warning("设置窗口进程启动失败：%s", exc)
+            self._process = None
+            return False
+
+        # Popen 成功只代表进程被创建，不代表 WebView 真的起来了。旧实现直接
+        # 返回 True，子进程随后因缺少 WebView2/打包依赖退出时，用户看到的是
+        # “点设置没反应”，也不会触发浏览器兜底。
+        if self.startup_grace:
+            try:
+                exit_code = self._process.wait(timeout=self.startup_grace)
+            except subprocess.TimeoutExpired:
+                return True
+            except (OSError, ValueError) as exc:
+                log.debug("无法确认设置窗口进程状态：%s", exc)
+                return True
+            log.warning("设置窗口进程启动后立即退出（退出码 %s）", exit_code)
             self._process = None
             return False
         return True
