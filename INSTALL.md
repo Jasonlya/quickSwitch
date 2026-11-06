@@ -50,8 +50,8 @@
 
 下载时按芯片选择：
 
-- Apple 芯片（M1/M2/M3/M4）：`QuickSwitch-1.2.1-macOS-arm64.dmg`
-- Intel 芯片：`QuickSwitch-1.2.1-macOS-x64.dmg`
+- Apple 芯片（M1/M2/M3/M4）：`QuickSwitch-1.2.2-macOS-arm64.dmg`
+- Intel 芯片：`QuickSwitch-1.2.2-macOS-x64.dmg`
 - 不确定时，在终端运行 `uname -m`：`arm64` 选 arm64，`x86_64` 选 x64。
 
 安装步骤：
@@ -71,7 +71,7 @@
 
 ### 2.2 Windows（推荐安装包）
 
-1. 下载并双击 `QuickSwitch-Setup-1.2.1.exe`，在 UAC 提示中点「是」。
+1. 下载并双击 `QuickSwitch-Setup-1.2.2.exe`，在 UAC 提示中点「是」。
 2. 未签名版本首次运行可能弹 SmartScreen：点「更多信息」→「仍要运行」。
 3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765，并写入卸载入口。
 4. 从桌面或开始菜单启动 QuickSwitch；首次运行会自动打开设置页面。
@@ -175,7 +175,7 @@ python3 main.py --gen-secret
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.1）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.2）
 密钥校验     : 已通过（hmac-sha256）
 DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
 ```

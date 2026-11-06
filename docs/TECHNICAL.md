@@ -77,7 +77,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（1.2.1.0）
+    version_info.txt        Windows exe 的版本资源（1.2.2.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   scripts/
@@ -264,7 +264,7 @@ python main.py --log-level DEBUG
 
 | 区块 | 内容 |
 | --- | --- |
-| 主界面 | 只显示「切到 Mac」「切到 Windows」两个大按钮；按钮悬停提示当前输入源、对端连接、密钥校验、DDC 与快捷键摘要；当前持有方以蓝色顶部边线标记 |
+| 主界面 | 只显示「切到 Mac」「切到 Windows」两个材质按钮；按钮悬停提示当前输入源、对端连接、密钥校验、DDC 与快捷键摘要；当前持有方以蓝色图标、描边和状态点标记 |
 | 更多信息与设置 | 默认折叠；展开后包含运行概况、显示器所有权、诊断工具、连接、显示器 DDC、热键、配置与事件日志 |
 | 显示器所有权 | 两台机器分列一条发丝栅格的两端，蓝色块停在当前持有方；切换时蓝块沿栅格滑动，两端数字（`ddc.mac_input` / `ddc.win_input`）用等宽字形跟着换色 |
 | 诊断工具 | 读取当前输入源 / 探测输入源（可自定义候选值，留空用内置候选集） |
@@ -286,9 +286,9 @@ python main.py --log-level DEBUG
 配置里的 `web.enabled` 可关掉整个控制台；临时关闭用 `--no-web`，改端口用 `--web-port`。
 若端口被别的程序占用，只会在日志里报错，切换功能不受影响。
 
-设计方向（前端一次性写死，不分主题）：走 **Swiss** 锚点 —— `#F7F7F8` 底 + 纯白面板、单一强调色 Yves Klein Blue `#002FA7`、Helvetica Neue/Inter 单一无衬线族、1px 发丝线与可见 12 栏栅格、左对齐、数字一律 tabular 并当构图元素用。
-不同点只有一处，就是「所有权转移条」：两台机器摆在同一条栅格的两端，切换时蓝块在栅格内滑动、数字换色 —— 状态迁移发生在栅格里，而不是弹一个模态框。
-没有暖纸底、没有衬线、没有颗粒纹理、没有装饰性图标与 `//` 式伪注释。
+设计方向：以 **Swiss** 锚点为骨架，按 macOS 原生材质语言落地 —— 冷灰白画布、系统字体（SF Pro / system-ui）、单一 Apple 蓝 `#007AFF`、发丝分隔线、左对齐与 tabular 数字；同时使用系统设置式的圆角卡片、半透明窗口材质和轻量阴影。
+不同点是桌面端呈现为一个居中的紧凑半透明窗口，主切换区采用「控制中心」式的两组材质按钮；当前持有方用图标底色、描边和状态点共同标记。
+支持系统深色模式；没有暖纸底、衬线、颗粒纹理、装饰性图标与 `//` 式伪注释。
 
 ### 6.2 开机自启
 
@@ -314,7 +314,7 @@ python3 main.py --gen-secret
 
 ```
 python3 main.py --status
-  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.1）
+  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.2.2）
   密钥校验     : 已通过（hmac-sha256）
 ```
 
@@ -346,9 +346,9 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe`（**单文件**，自带 Python 运行时与 `ui/`） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.2.1`），
-spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.2.1.0`），不会两处漂移。
-图标由 `packaging/make-icons.py` 用 Pillow 现画（Klein Blue 圆角方块 + 两台显示器 + 箭头），
+两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.2.2`），
+spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.2.2.0`），不会两处漂移。
+图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
 
 ### 7.1 macOS：打包 → 签名 → 公证
@@ -375,7 +375,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-1.2.1.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-1.2.2.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -426,22 +426,22 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 
 ```bash
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-1.2.1-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-1.2.2-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=1.2.1 packaging\installer.nsi
+makensis /DVERSION=1.2.2 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后自动构建
 macOS `arm64` / `x64` 两个 DMG 和 Windows Setup，并创建 GitHub Release、上传 `SHA256SUMS.txt` 与 `INSTALL.md`。
 
 ```bash
-git tag v1.2.1
-git push origin v1.2.1
+git tag v1.2.2
+git push origin v1.2.2
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，

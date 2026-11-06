@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """生成应用图标（macOS .icns / Windows .ico / 通用 .png）。
 
-画面与托盘图标同一套语言：两块屏幕 + 中间的切换箭头；底色用产品强调色
-Yves Klein Blue #002FA7，屏幕与箭头为白色。纯几何绘制，不使用外部素材。
+画面与托盘图标同一套语言：两块屏幕 + 中间的切换箭头；底色用 Apple 蓝渐变
+（#55AAFF → #007AFF），屏幕与箭头为白色。纯几何绘制，不使用外部素材。
 
 用法：
 
@@ -20,7 +20,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-ACCENT = (0, 47, 167, 255)      # #002FA7
+ACCENT_TOP = (85, 170, 255, 255)     # #55AAFF
+ACCENT_BOTTOM = (0, 122, 255, 255)   # #007AFF
 WHITE = (255, 255, 255, 255)
 
 SIZE = 1024
@@ -33,15 +34,34 @@ def draw_icon(size: int = SIZE):
 
     scale = size / SIZE
     image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
 
     def box(coords):
         return [round(value * scale) for value in coords]
 
+    background_box = box([BLEED, BLEED, SIZE - BLEED, SIZE - BLEED])
+    background_radius = round((SIZE - 2 * BLEED) * CORNER)
+
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        background_box, radius=background_radius, fill=255
+    )
+    gradient = Image.new("RGBA", (size, size))
+    gradient_draw = ImageDraw.Draw(gradient)
+    for y in range(size):
+        ratio = y / max(size - 1, 1)
+        color = tuple(
+            round(top + (bottom - top) * ratio)
+            for top, bottom in zip(ACCENT_TOP, ACCENT_BOTTOM)
+        )
+        gradient_draw.line([(0, y), (size, y)], fill=color)
+    image.paste(gradient, (0, 0), mask)
+
+    draw = ImageDraw.Draw(image)
     draw.rounded_rectangle(
-        box([BLEED, BLEED, SIZE - BLEED, SIZE - BLEED]),
-        radius=round((SIZE - 2 * BLEED) * CORNER),
-        fill=ACCENT,
+        background_box,
+        radius=background_radius,
+        outline=(255, 255, 255, 48),
+        width=max(1, round(4 * scale)),
     )
 
     # 两块屏幕（左边接 Mac，右边接 Windows，与界面里的「所有权转移条」同构）

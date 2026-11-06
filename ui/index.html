@@ -10,8 +10,13 @@
 <div class="page">
 
   <header class="masthead">
+    <div class="app-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="13" rx="2.4"></rect>
+        <path d="M8 21h8M12 17v4"></path>
+      </svg>
+    </div>
     <div class="masthead-mark">
-      <span class="masthead-kicker">QUICKSWITCH</span>
       <h1>QuickSwitch</h1>
       <p class="masthead-note">切换显示器输入源与键鼠控制权。</p>
     </div>
@@ -22,12 +27,38 @@
   <main class="switchboard" aria-label="显示器和键鼠切换">
     <div class="switch-actions">
       <button type="button" class="switch-button" id="btnMac" data-target="mac">
-        <span class="switch-target">Mac</span>
-        <span class="switch-go">切到 Mac <span aria-hidden="true">→</span></span>
+        <span class="switch-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="13" rx="2.4"></rect>
+            <path d="M8 21h8M12 17v4"></path>
+          </svg>
+        </span>
+        <span class="switch-copy">
+          <span class="switch-target">Mac</span>
+          <span class="switch-go">切到 Mac</span>
+        </span>
+        <span class="switch-chevron" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9 6 6 6-6 6"></path>
+          </svg>
+        </span>
       </button>
       <button type="button" class="switch-button" id="btnWin" data-target="win">
-        <span class="switch-target">Windows</span>
-        <span class="switch-go">切到 Windows <span aria-hidden="true">→</span></span>
+        <span class="switch-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="13" rx="2.4"></rect>
+            <path d="M8 21h8M12 17v4"></path>
+          </svg>
+        </span>
+        <span class="switch-copy">
+          <span class="switch-target">Windows</span>
+          <span class="switch-go">切到 Windows</span>
+        </span>
+        <span class="switch-chevron" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9 6 6 6-6 6"></path>
+          </svg>
+        </span>
       </button>
     </div>
     <p class="run-state" id="runState" aria-live="polite"></p>
@@ -35,7 +66,14 @@
 
   <details class="advanced" id="advanced">
     <summary>
-      <span>更多信息与设置</span>
+      <span class="summary-leading">
+        <span class="disclosure" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9 6 6 6-6 6"></path>
+          </svg>
+        </span>
+        <span>更多信息与设置</span>
+      </span>
       <span class="summary-hint">连接、DDC、配置与日志</span>
     </summary>
     <div class="advanced-body">

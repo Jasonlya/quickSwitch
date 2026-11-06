@@ -13,9 +13,9 @@
 
 | 你的电脑 | 下载文件 | 安装方法 |
 | --- | --- | --- |
-| Mac（Apple 芯片 M1/M2/M3/M4） | `QuickSwitch-1.2.1-macOS-arm64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
-| Mac（Intel 芯片） | `QuickSwitch-1.2.1-macOS-x64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
-| Windows 10/11 64 位 | `QuickSwitch-Setup-1.2.1.exe` | 双击安装，按提示下一步即可 |
+| Mac（Apple 芯片 M1/M2/M3/M4） | `QuickSwitch-1.2.2-macOS-arm64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
+| Mac（Intel 芯片） | `QuickSwitch-1.2.2-macOS-x64.dmg` | 打开 DMG，把 QuickSwitch 拖进「应用程序」 |
+| Windows 10/11 64 位 | `QuickSwitch-Setup-1.2.2.exe` | 双击安装，按提示下一步即可 |
 
 安装包已经自带 Python 运行时、托盘依赖和网页设置页，目标电脑不需要开发环境。
 
@@ -81,8 +81,8 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v1.2.1
-git push origin v1.2.1
+git tag v1.2.2
+git push origin v1.2.2
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。
