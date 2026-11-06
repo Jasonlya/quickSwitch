@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -20,6 +21,35 @@ def iter_test_ids(suite: unittest.TestSuite):
             yield from iter_test_ids(test)
         else:
             yield test.id()
+
+
+def child_process_options():
+    """让测试子进程拥有独立进程组，超时后可连同其子进程一起终止。"""
+    if os.name == "posix":
+        return {"start_new_session": True}
+    if os.name == "nt":
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        return {"creationflags": flags} if flags else {}
+    return {}
+
+
+def terminate_process_tree(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "posix":
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(process.pid, signal.SIGKILL)
+    elif os.name == "nt":
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                timeout=10,
+            )
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        process.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=5)
 
 
 def main() -> int:
@@ -41,21 +71,27 @@ def main() -> int:
     for index, test_id in enumerate(ids, 1):
         started = time.monotonic()
         command = [sys.executable, "-m", "unittest", "-v", test_id]
+        print(f"[{index}/{len(ids)}] {test_id}", flush=True)
+        process = subprocess.Popen(
+            command,
+            cwd=str(ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            **child_process_options(),
+        )
         try:
-            completed = subprocess.run(
-                command,
-                cwd=str(ROOT),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-                timeout=args.timeout,
-            )
+            stdout, stderr = process.communicate(timeout=args.timeout)
+            returncode = process.returncode
         except subprocess.TimeoutExpired as exc:
+            terminate_process_tree(process)
+            stdout, stderr = process.communicate()
             timeouts += 1
             failures += 1
-            output = (exc.stdout or "") + (exc.stderr or "")
+            output = str(exc.stdout or "") + str(exc.stderr or "") + (stdout or "") + (stderr or "")
             print("\n" + "=" * 70, flush=True)
             print(f"ERROR: TIMEOUT {test_id}", flush=True)
             print("-" * 70, flush=True)
@@ -68,12 +104,12 @@ def main() -> int:
             continue
 
         elapsed = time.monotonic() - started
-        if completed.returncode != 0:
+        if returncode != 0:
             failures += 1
             print("\n" + "=" * 70, flush=True)
             print(f"FAIL: {test_id} ({elapsed:.2f}s)", flush=True)
             print("-" * 70, flush=True)
-            print((completed.stdout or "") + (completed.stderr or ""), flush=True)
+            print((stdout or "") + (stderr or ""), flush=True)
         elif index % 25 == 0 or index == len(ids):
             print(f"进度：{index}/{len(ids)}（{elapsed:.2f}s）", flush=True)
 
