@@ -484,6 +484,10 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
+- **已验证**：`v1.2.2` 发布任务成功，Release 包含两个 macOS DMG、Windows Setup 与 `SHA256SUMS.txt`；
+  三个资产校验和一致，两个 DMG 均通过 `hdiutil verify`。arm64 包内二进制实际运行返回
+  `QuickSwitch 1.2.2`，x64 包内二进制为 Mach-O x86_64，Windows 资产为有效 NSIS 安装器。
+  从 arm64 DMG 启动成品 App 后确认：macOS 风格居中窗口、半透明材质、新的切换按钮与图标均已打包进正式资产。
 - **已验证**：`v1.2.1` 的 GitHub Actions 发布任务成功，Release 包含
   `QuickSwitch-1.2.1-macOS-arm64.dmg`、`QuickSwitch-1.2.1-macOS-x64.dmg`、
   `QuickSwitch-Setup-1.2.1.exe` 与 `SHA256SUMS.txt`；三个资产与校验文件一致，两个 DMG 均通过
