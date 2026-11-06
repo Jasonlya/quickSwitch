@@ -208,28 +208,18 @@ class PeerDiscovery:
         sock = self._sock
         assert sock is not None
         loop = asyncio.get_running_loop()
-        queue: "asyncio.Queue[Tuple[bytes, Tuple[str, int]]]" = asyncio.Queue()
-
-        def on_readable() -> None:
-            # 一次可读事件里把缓冲区收空，避免水平触发下反复唤醒
-            while True:
-                try:
-                    data, addr = sock.recvfrom(4096)
-                except (BlockingIOError, InterruptedError):
-                    return
-                except OSError as exc:
+        while self._running:
+            try:
+                # sock_recvfrom 同时支持 macOS 的 selector 和 Windows 的
+                # ProactorEventLoop；add_reader 在 Windows 上不可用。
+                data, addr = await loop.sock_recvfrom(sock, 4096)
+            except asyncio.CancelledError:
+                raise
+            except OSError as exc:
+                if self._running:
                     log.debug("设备发现接收失败：%s", exc)
-                    return
-                queue.put_nowait((data, addr))
-
-        loop.add_reader(sock.fileno(), on_readable)
-        try:
-            while self._running:
-                data, addr = await queue.get()
-                self.observe(data, addr)
-        finally:
-            with contextlib.suppress(Exception):
-                loop.remove_reader(sock.fileno())
+                return
+            self.observe(data, addr)
 
     async def _announce_loop(self) -> None:
         sock = self._sock

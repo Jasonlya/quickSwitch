@@ -103,7 +103,7 @@ class CommandTests(unittest.TestCase):
             command,
             [
                 "/usr/bin/python3",
-                "/repo/main.py",
+                str(Path("/repo/main.py")),
                 "--settings-window",
                 "http://127.0.0.1:8767/?t=secret",
             ],
