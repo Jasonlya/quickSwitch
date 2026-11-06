@@ -3,6 +3,9 @@ dist/
 build/
 .venv-build/
 
+# 构建时下载的第三方二进制（由 packaging/fetch-deskflow.py 准备）
+packaging/vendor/
+
 # Python
 __pycache__/
 *.py[cod]

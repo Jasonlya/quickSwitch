@@ -1,5 +1,5 @@
 ; QuickSwitch Windows 安装包（NSIS 3.x）
-; 构建：makensis /DVERSION=1.0.3 packaging\installer.nsi
+; 构建：makensis /DVERSION=2.0.0 packaging\installer.nsi
 ; 产物：dist\QuickSwitch-Setup-<VERSION>.exe
 ; 说明：需要先由 packaging\quickswitch.spec 产出 dist\QuickSwitch.exe
 
@@ -7,7 +7,7 @@
 !include "FileFunc.nsh"
 
 !ifndef VERSION
-  !define VERSION "1.0.3"
+  !define VERSION "2.0.0"
 !endif
 
 !define APPNAME   "QuickSwitch"
@@ -18,9 +18,11 @@
 ; Windows 版 NSIS 的 File 命令只按反斜杠拆分路径；Unix 版 makensis 使用正斜杠。
 !ifdef NSIS_WIN32_MAKENSIS
   !define DISTDIR "${PROJECTDIR}\dist"
+  !define DESKFLOWDIR "${PROJECTDIR}\packaging\vendor\deskflow\windows-x64"
   !define DISTSEP "\"
 !else
   !define DISTDIR "${PROJECTDIR}/dist"
+  !define DESKFLOWDIR "${PROJECTDIR}/packaging/vendor/deskflow/windows-x64"
   !define DISTSEP "/"
 !endif
 
@@ -60,6 +62,12 @@ Section "QuickSwitch 主程序" SecMain
     SetOutPath "$INSTDIR"
     File "${DISTDIR}${DISTSEP}${APPEXE}"
     File "icon.ico"
+    File "${PROJECTDIR}${DISTSEP}THIRD_PARTY_NOTICES.md"
+
+    ; Deskflow 随 QuickSwitch 一起安装，用户无需另外下载。
+    SetOutPath "$INSTDIR\deskflow"
+    File /r "${DESKFLOWDIR}${DISTSEP}*"
+    SetOutPath "$INSTDIR"
 
     CreateDirectory "$SMPROGRAMS\QuickSwitch"
     CreateShortCut "$SMPROGRAMS\QuickSwitch\QuickSwitch.lnk" "$INSTDIR\${APPEXE}"
@@ -87,6 +95,8 @@ Section "QuickSwitch 主程序" SecMain
     nsExec::ExecToLog 'netsh advfirewall firewall add rule name="QuickSwitch" dir=in action=allow protocol=TCP localport=8765'
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch Discovery"'
     nsExec::ExecToLog 'netsh advfirewall firewall add rule name="QuickSwitch Discovery" dir=in action=allow protocol=UDP localport=8766'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch Deskflow"'
+    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="QuickSwitch Deskflow" dir=in action=allow protocol=TCP localport=24800'
 
     ; 快捷方式以管理员身份运行：Windows 端注册全局热键需要
     WriteRegStr HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" \
@@ -98,6 +108,8 @@ Section "Uninstall"
     SetShellVarContext all
     Delete "$INSTDIR\${APPEXE}"
     Delete "$INSTDIR\icon.ico"
+    Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"
+    RMDir /r "$INSTDIR\deskflow"
     Delete "$INSTDIR\Uninstall.exe"
     RMDir  "$INSTDIR"
 
@@ -108,6 +120,7 @@ Section "Uninstall"
 
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch"'
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch Discovery"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="QuickSwitch Deskflow"'
 
     DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${APPEXE}"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuickSwitch"

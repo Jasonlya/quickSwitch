@@ -73,6 +73,18 @@ class CliTests(unittest.TestCase):
         self.assertIn("DDC 后端", result.stdout)
         self.assertIn("当前输入源", result.stdout)
 
+    def test_deskflow_status_reports_json(self) -> None:
+        result = self.run_cli("--deskflow-status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn("installed", payload)
+        self.assertIn("running", payload)
+        self.assertIn("bundled", payload)
+        self.assertIn(payload["mode"], ("client", "server"))
+        self.assertFalse(payload["tls"])
+        self.assertIn("config_path", payload)
+        self.assertIn("log_path", payload)
+
     def test_init_config_writes_file(self) -> None:
         target = Path(self.tmp.name) / "nested" / "generated.json"
         result = subprocess.run(

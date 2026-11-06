@@ -180,11 +180,28 @@
     </div>
   </section>
 
-  <section class="section" id="config">
+  <section class="section" id="keymouse">
     <div class="section-head">
       <span class="folio num">07</span>
+      <h2>键鼠共享</h2>
+      <p class="section-note">由 QuickSwitch 内置的核心自动连接，不需要安装或打开 Deskflow 客户端。Windows 自动作为服务端，macOS 自动作为客户端。</p>
+    </div>
+    <div class="section-body">
+      <dl class="kv" id="kvDeskflow"></dl>
+      <div class="controls">
+        <button type="button" class="action action-quiet" id="btnRestartDeskflow">重启键鼠共享</button>
+        <button type="button" class="action action-quiet" id="btnStopDeskflow">停止键鼠共享</button>
+        <button type="button" class="action action-quiet" id="btnOpenAccessibility">打开辅助功能设置</button>
+      </div>
+      <p class="run-state" id="deskflowState" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <section class="section" id="config">
+    <div class="section-head">
+      <span class="folio num">08</span>
       <h2>配置</h2>
-      <p class="section-note">第一次使用只需改三处：<strong>对端地址</strong>（另一台电脑的局域网 IP，见上方「本机 IP」对照填写）、<strong>角色</strong>（Windows 选 server，macOS 选 client）、<strong>6 位配对码</strong>（两端填同一个值，在下方「安全」区块）。保存后退出并重新打开 QuickSwitch 生效；其余留默认即可。</p>
+      <p class="section-note">第一次使用只需改三处：<strong>对端地址</strong>（另一台电脑的局域网 IP，见上方「本机 IP」对照填写）、<strong>角色</strong>（Windows 选 server，macOS 选 client）、<strong>6 位配对码</strong>（两端填同一个值，在下方「安全」区块）。带「需重启」标记的字段需退出并重新打开 QuickSwitch；热键与键鼠共享保存后会自动生效。</p>
     </div>
     <div class="section-body">
       <div class="config-groups" id="configGroups"></div>
@@ -199,7 +216,7 @@
 
   <section class="section" id="events">
     <div class="section-head">
-      <span class="folio num">08</span>
+      <span class="folio num">09</span>
       <h2>事件</h2>
       <p class="section-note">运行中进程的日志尾部，倒序排列。</p>
     </div>
@@ -400,6 +417,11 @@
           <div class="setup-finish-note" id="setupFinishNote">
             <strong>下一步</strong>
             <span>完成配置后关闭设置窗口，从菜单栏或托盘菜单选择「退出」，再重新打开 QuickSwitch。</span>
+          </div>
+          <div class="setup-note" id="setupPermissionNote" hidden>
+            <strong>macOS 首次使用键鼠共享</strong>
+            <span>在「系统设置 → 隐私与安全性」中允许 QuickSwitch（或列表里出现的 Deskflow）使用辅助功能和输入监控，然后重启键鼠共享。无需安装或打开 Deskflow 客户端。</span>
+            <button type="button" class="setup-mini-button" id="setupOpenAccessibility">打开辅助功能设置</button>
           </div>
           <p class="setup-inline-state" id="setupFinishState" role="status"></p>
         </section>

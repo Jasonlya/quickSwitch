@@ -11,7 +11,7 @@
 
 | 步骤 | Windows（server） | macOS（client） |
 | --- | --- | --- |
-| 1 | 装 Deskflow，设成 **Server** | 装 Deskflow，设成 **Client** |
+| 1 | 键鼠共享核心自动按服务端启动，无需打开 Deskflow | 键鼠共享核心自动按客户端启动，无需打开 Deskflow |
 | 2 | 无需额外 DDC 工具（内置 DXVA2） | 装 m1ddc（Apple Silicon） |
 | 3 | 运行 QuickSwitch | 运行 QuickSwitch |
 | 4 | 填对方 IP、同一端口、同一个 `auth.secret` | 同左 |
@@ -26,7 +26,7 @@
 | 网络 | 两台机器在同一局域网 | 有线/无线都行，但要能互 ping 通；跨网段需先在路由器放行 |
 | 显示器 | 支持 DDC/CI（VCP 0x60 输入源） | 多数显示器默认开启；个别型号要在 OSD 菜单里打开 DDC/CI |
 | 连线 | 建议视频线直连两台机器 | 中间经过扩展坞 / KVM 可能读不到输入源 |
-| 键鼠 | 物理接在 Windows 上 | macOS 端通过 Deskflow 借用 |
+| 键鼠 | 物理接在 Windows 上 | macOS 端通过内置键鼠共享借用 |
 | 权限 | Windows 侧注册全局热键需管理员 | 托盘图标与网页控制不需要 |
 
 软件清单：
@@ -34,7 +34,7 @@
 | 软件 | 作用 | 是否必须 |
 | --- | --- | --- |
 | QuickSwitch | 切显示器输入源 + 通知对端 | **必须**，本文档安装的就是它 |
-| Deskflow | 一套键鼠控制两台机器、剪贴板文本共享 | 必须（除非你只想切显示器） |
+| Deskflow 无界面核心 | 一套键鼠控制两台机器、剪贴板文本共享 | 已内置并由 QuickSwitch 自动管理，无需单独下载或打开客户端；GPL-2.0，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
 | ControlMyMonitor | Windows 侧可选的外部 DDC 回退 | 可选；Windows 端默认使用系统内置 DXVA2 |
 | m1ddc | macOS 侧 DDC/CI 工具 | 必须（macOS 端） |
 | LocalSend / Tailscale | 传文件 / 固定虚拟 IP | 可选 |
@@ -94,9 +94,11 @@ QuickSwitch macOS 版只支持 Apple Silicon（M1/M2/M3/M4），不再提供 Int
 
 1. 下载并双击最新 Release 里的 `QuickSwitch-Setup-*.exe`，在 UAC 提示中点「是」。
 2. 未签名版本首次运行可能弹 SmartScreen：点「更多信息」→「仍要运行」。
-3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765（切换通知）和 UDP 8766（自动发现），并写入卸载入口。
+3. 安装程序会创建桌面和开始菜单快捷方式，自动放行 TCP 8765（切换通知）、UDP 8766（自动发现）和键鼠共享 TCP 24800，并写入卸载入口。
 4. 从桌面或开始菜单启动 QuickSwitch；首次运行会自动弹出配置向导。
 5. Windows 全局热键需要管理员权限，快捷方式已设置为以管理员身份运行；每次启动出现 UAC 时点「是」即可。
+
+安装目录中的 `deskflow\` 是随包内置的官方 Deskflow 无界面核心。它由 QuickSwitch 自动启动，不需要单独打开，也没有客户端快捷方式。
 
 命令行自检：
 
@@ -201,7 +203,7 @@ python3 main.py --gen-secret
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.3）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=2.0.0）
 密钥校验     : 已通过（hmac-sha256）
 DDC 后端     : 已找到 /opt/homebrew/bin/m1ddc
 ```
@@ -248,14 +250,28 @@ DDC 后端     : Windows 原生 DDC（DXVA2）已检测到 1 个显示器：...
 密钥校验、DDC 和快捷键摘要。点「更多信息与设置」后，才能读取/探测输入源、查看连接与
 DDC 命令原文、修改白名单配置和查看事件日志。地址里的 `?t=` 不要发给别人。
 
-### 4.3 和 Deskflow 配合
+### 4.3 键鼠共享（已集成，无需打开 Deskflow）
 
-QuickSwitch 只管显示器，键鼠控制权归 Deskflow。两边热键要**配成同一组**，这样一次按键两件事同时发生：
+QuickSwitch 会在后台自动启动随包内置的 `deskflow-core`，并根据 QuickSwitch 配置生成键鼠共享配置。**不需要安装 Deskflow，也不需要打开它的客户端页面。**
 
-| 目标 | QuickSwitch 热键 | Deskflow 热键 |
-| --- | --- | --- |
-| 切到 Mac | `ctrl+alt+1` | 「切换到 Mac 屏幕」 |
-| 切到 Windows | `ctrl+alt+2` | 「切换到 Windows 屏幕」 |
+- Windows 自动作为服务端，监听 TCP `24800`。
+- macOS 自动作为客户端，连接 QuickSwitch 发现或配置的 Windows 地址。
+- 两台电脑的屏幕相对位置由 `deskflow.mac_side` 控制：Mac 在左选 `left`，在右选 `right`。
+- QuickSwitch 的两个切换热键会自动写入键鼠共享配置，一次按键同时切换显示器和键鼠。
+- 退出 QuickSwitch 时，内置核心会同步停止；需要单独重启时，用设置页的「重启键鼠共享」或托盘菜单。
+
+默认状态目录为 `~/.quickswitch/deskflow`，里面有 `Deskflow.conf`、`Deskflow-server.conf`（仅服务端）、`deskflow.pid` 和 `deskflow.log`。设置页的「键鼠共享」区块会直接显示状态、模式、端口、日志路径和最近错误。
+
+macOS 首次使用只需授权一次：
+
+1. 打开「系统设置 → 隐私与安全性」。
+2. 在**辅助功能**和**输入监控**中允许 QuickSwitch；如果列表里出现 `Deskflow` 或 `deskflow-core`，也一并打开。
+3. 在**本地网络**中允许 QuickSwitch 访问局域网。
+4. 回到 QuickSwitch 设置页，点「重启键鼠共享」。
+
+如果日志出现 `assistive devices does not trust this process`，说明 macOS 尚未授权辅助功能；设置页会显示对应提示，可点「打开辅助功能设置」直接跳转。Windows 安装包会自动放行 TCP `24800`；源码运行或手工安装时需自行在防火墙放行该端口。
+
+验收方法：在 Windows 上按 `Ctrl+Alt+1`，显示器应切到 Mac，同时 Windows 键鼠应能控制 Mac；按 `Ctrl+Alt+2` 应反向切回。若显示器切了但键鼠没过去，先看设置页「键鼠共享」是否为运行中，再检查 macOS 权限和 Windows 的 TCP `24800` 防火墙规则。
 
 ---
 
@@ -321,7 +337,8 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch Discovery"
 | 首次启动设置窗口晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
 | 点切换没反应 / 找不到 DDC/CI | 按显示器机身按钮或摇杆打开 OSD 菜单，在「系统 / 设置 / 其他设置 / OSD 设置 / 管理」里找「DDC/CI」（也可能叫 DDC/CI Support、Monitor Control、MCCS），设为「开 / On」；保存后等 5 秒。详细路径见 [1.1 开启显示器 DDC/CI](#11-开启显示器-ddcci)。Windows 再看 `--status` 的 DDC 后端是否为 DXVA2，macOS 检查 `ddc.m1ddc_path` |
 | Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包会尝试该外部回退。最新版 Windows 使用内置 DXVA2，不需要该文件；ControlMyMonitor 仅是可选的补充回退 |
-| 显示器切了但键鼠没过去 | Deskflow 的问题：检查两端 Deskflow 连接与热键 |
+| QuickSwitch 启动后键鼠共享没起来 | 运行 `--deskflow-status` 检查 `installed`/`bundled`/`running`，或展开设置页「键鼠共享」看日志；确认 `deskflow.auto_start` 开启。Windows 核心位于 `QuickSwitch\deskflow`，macOS 位于 `QuickSwitch.app/Contents/Resources/deskflow`，通常不需要另装 |
+| 显示器切了但键鼠没过去 | 在设置页点「重启键鼠共享」；确认两端 QuickSwitch 已连接、Windows 自动为服务端、Mac 自动为客户端、`deskflow.mac_side` 与实际屏幕方向一致。Windows 安装器会自动放行 TCP `24800`；macOS 授予辅助功能、输入监控和本地网络权限后重启核心 |
 | 对端未连接 | IP / 端口、防火墙、对端没运行。`--status` 会写明「连接失败」 |
 | 密钥校验未通过 | 两端配对码不一致，改成同一个 6 位配对码后重启 |
 | 想停掉程序 | 托盘菜单「退出」。托盘运行时 `SIGTERM` 不生效，脚本里停进程用 `kill -9` |

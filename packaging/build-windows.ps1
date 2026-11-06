@@ -147,6 +147,13 @@ if (-not $SkipInstall) {
     Write-Info "-SkipInstall：复用 $Venv 里已有的依赖"
 }
 
+Write-Step "准备内置 Deskflow"
+& $BuildPy (Join-Path $ScriptDir "fetch-deskflow.py") --target windows-x64 --if-missing
+if ($LASTEXITCODE -ne 0) { throw "准备内置 Deskflow 失败（退出码 $LASTEXITCODE）" }
+$DeskflowExe = Join-Path $ScriptDir "vendor\deskflow\windows-x64\deskflow-core.exe"
+if (-not (Test-Path $DeskflowExe)) { throw "找不到内置键鼠共享核心：$DeskflowExe" }
+Write-Info "内置键鼠共享核心：$DeskflowExe"
+
 # --------------------------------------------------------------- 打包
 Write-Step "PyInstaller 打包"
 & $BuildPy -m PyInstaller --clean --noconfirm `
@@ -207,7 +214,7 @@ if ($NoSign) {
 Write-Info "SHA256 ：$hash"
 Write-Info ""
 Write-Info "在目标机器上还需要："
-Write-Info "  1) 防火墙放行监听端口（管理员 PowerShell，只需一次）："
-Write-Info "       netsh advfirewall firewall add rule name=\"QuickSwitch\" dir=in action=allow protocol=TCP localport=8765"
-Write-Info "  2) 注册全局热键需要管理员权限：用 scripts\install-task.ps1 注册成登录自启"
-Write-Info "  3) 自检：QuickSwitch.exe --status（会附着到当前 cmd 窗口输出）"
+Write-Info "  1) 键鼠共享核心已随安装包内置，并在 QuickSwitch 启动时自动运行"
+Write-Info "  2) 安装包会自动放行 QuickSwitch TCP 8765 / UDP 8766 和键鼠共享 TCP 24800"
+Write-Info "  3) 注册全局热键需要管理员权限：用 scripts\install-task.ps1 注册成登录自启"
+Write-Info "  4) 自检：QuickSwitch.exe --deskflow-status / --status"

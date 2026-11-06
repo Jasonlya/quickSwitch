@@ -42,6 +42,7 @@ from config import (
     validate,
 )
 from ddc import DDC_OSD_GUIDANCE, DEFAULT_INPUT_CANDIDATES, DDCSwitcher
+import deskflow_bridge
 from discovery import DEFAULT_PORT as DISCOVERY_DEFAULT_PORT
 from discovery import PeerDiscovery
 from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
@@ -49,7 +50,7 @@ from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "1.0.3"
+VERSION = "2.0.0"
 TARGETS = ("mac", "win")
 
 
@@ -397,6 +398,20 @@ class QuickSwitchApp:
         self._stopping = False
         self.hotkeys_registered = False
         self.hotkeys_reason = "尚未尝试注册热键"
+        self.deskflow_status: Dict[str, Any] = {
+            "auto_start": bool((cfg.get("deskflow") or {}).get("auto_start", True)),
+            "path": "",
+            "installed": False,
+            "running": False,
+            "system": self.platform,
+            "detail": "尚未检查",
+        }
+        self._deskflow_checked_at = 0.0
+        self._deskflow_lock = threading.RLock()
+        configured_peer = str(cfg.get("peer_host") or "").strip()
+        self._deskflow_peer_host = (
+            "" if configured_peer.lower() in ("", "auto") else configured_peer
+        )
 
         web_cfg = cfg.get("web") or {}
         self.web_enabled = bool(web_cfg.get("enabled", True)) if web is None else bool(web)
@@ -427,6 +442,126 @@ class QuickSwitchApp:
 
     def _on_peer_found(self, peer: Dict[str, Any]) -> None:
         self.peer.set_host(peer["host"], peer["port"])
+        role = str(self.cfg.get("role") or "").lower()
+        peer_role = str(peer.get("role") or "").lower()
+        if role != "client" or peer_role not in ("", "server"):
+            return
+        host = str(peer.get("host") or "").strip()
+        if not host or host == self._deskflow_peer_host:
+            return
+        previous = self._deskflow_peer_host
+        self._deskflow_peer_host = host
+        if self.dry_run or not bool((self.cfg.get("deskflow") or {}).get("auto_start", True)):
+            return
+        # 发现回调运行在 asyncio 线程：把启动放到后台，避免阻塞广播/心跳循环。
+        threading.Thread(
+            target=self._restart_deskflow,
+            kwargs={"reason": "已发现 Windows" if not previous else "Windows 地址已更新"},
+            name="quickswitch-deskflow-discovery",
+            daemon=True,
+        ).start()
+
+    # ---------------------------------------------------------------- Deskflow
+    def _refresh_deskflow_status(self) -> Dict[str, Any]:
+        status = deskflow_bridge.snapshot(self.cfg, system=self.platform)
+        with self._deskflow_lock:
+            previous_detail = self.deskflow_status.get("detail", "")
+            if not status.get("running") and previous_detail:
+                status["detail"] = previous_detail
+            if self._deskflow_peer_host:
+                status["peer_host"] = self._deskflow_peer_host
+            self.deskflow_status = status
+            self._deskflow_checked_at = time.monotonic()
+        return status
+
+    def deskflow_snapshot(self) -> Dict[str, Any]:
+        """返回缓存的 Deskflow 状态；超过 3 秒才重新探测进程。"""
+        if time.monotonic() - self._deskflow_checked_at >= 3.0:
+            self._refresh_deskflow_status()
+        return dict(self.deskflow_status)
+
+    def _wait_for_deskflow(self, timeout: float = 1.5) -> None:
+        """等待启动后的进程可被检测到，避免状态页短暂显示「未运行」。"""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            time.sleep(0.15)
+            if self._refresh_deskflow_status().get("running"):
+                return
+
+    def _start_deskflow(self) -> None:
+        self._run_deskflow(restart=False, reason="")
+
+    def _restart_deskflow(self, reason: str = "配置已更新") -> None:
+        self._run_deskflow(restart=True, reason=reason)
+
+    def _run_deskflow(self, *, restart: bool, reason: str) -> None:
+        with self._deskflow_lock:
+            self._refresh_deskflow_status()
+            if self.dry_run:
+                log.info("dry-run：跳过键鼠共享核心启动")
+                return
+            if not self.deskflow_status.get("auto_start", True):
+                stopped, stop_detail = deskflow_bridge.stop(self.cfg, system=self.platform)
+                if stopped:
+                    detail = "键鼠共享自动启动已关闭"
+                    if "已停止" in stop_detail:
+                        detail += "；已停止内置核心"
+                    self.deskflow_status["running"] = False
+                    self.deskflow_status["managed"] = False
+                    log.info("键鼠共享：%s", detail)
+                else:
+                    detail = f"键鼠共享自动启动已关闭；{stop_detail}"
+                    log.warning("键鼠共享：%s", detail)
+                self.deskflow_status["detail"] = detail
+                self._deskflow_checked_at = time.monotonic()
+                return
+            role = "client" if str(self.cfg.get("role")) == "client" else "server"
+            peer_host = self._deskflow_peer_host
+            if role == "client" and not peer_host:
+                detail = "等待自动发现 Windows 后启动键鼠共享核心"
+                self.deskflow_status["detail"] = detail
+                log.info("键鼠共享：%s", detail)
+                return
+            runner = deskflow_bridge.restart if restart else deskflow_bridge.start
+            ok, detail = runner(
+                self.cfg,
+                system=self.platform,
+                peer_host=peer_host or None,
+            )
+        if ok:
+            if reason:
+                detail = f"{reason}：{detail}"
+            log.info("键鼠共享：%s", detail)
+            self._wait_for_deskflow()
+            if not self.deskflow_status.get("running"):
+                detail += "（启动命令已发送，但进程尚未被检测到）"
+        else:
+            log.warning(
+                "键鼠共享：%s。请确认两端 QuickSwitch 都已启动；"
+                "macOS 还需在「系统设置 → 隐私与安全性」允许辅助功能和输入监控。",
+                detail,
+            )
+        self._refresh_deskflow_status()
+        self.deskflow_status["detail"] = detail
+
+    def restart_deskflow(self, reason: str = "手动重启") -> tuple[bool, str]:
+        """供托盘/设置页调用：重启内置的无界面键鼠共享核心。"""
+        self._restart_deskflow(reason)
+        return bool(self.deskflow_status.get("running")), str(self.deskflow_status.get("detail") or "")
+
+    def apply_live_config(self, changed: List[str]) -> bool:
+        """保存配置后尝试原地生效；需要重启进程的字段仍返回 False。"""
+        if not changed:
+            return False
+        live_prefixes = ("deskflow.", "hotkeys.")
+        if not all(any(key == prefix.rstrip(".") or key.startswith(prefix) for prefix in live_prefixes)
+                   for key in changed):
+            return False
+        if any(key.startswith("hotkeys.") for key in changed):
+            self._setup_hotkeys()
+        if any(key.startswith("deskflow.") or key.startswith("hotkeys.") for key in changed):
+            self._restart_deskflow("配置已更新")
+        return True
 
     # ---------------------------------------------------------------- 输入源缓存
     def read_cache(self) -> Dict[str, Any]:
@@ -531,6 +666,10 @@ class QuickSwitchApp:
             with contextlib.suppress(Exception):
                 self.web.stop()
             self.web = None
+        with contextlib.suppress(Exception):
+            ok, detail = deskflow_bridge.stop(self.cfg, system=self.platform)
+            if not ok:
+                log.debug("停止键鼠共享核心：%s", detail)
         if self._keyboard is not None:
             with contextlib.suppress(Exception):
                 self._keyboard.unhook_all_hotkeys()
@@ -563,6 +702,7 @@ class QuickSwitchApp:
 
         self._install_signal_handlers()
         self._setup_hotkeys()
+        self._start_deskflow()
         if self.web_enabled:
             self._start_web()
         tool_ok, tool_detail = self.quick.ddc.tool_available()
@@ -724,6 +864,13 @@ class QuickSwitchApp:
     def _tray_open_console(self, icon, item) -> None:
         self._open_console()
 
+    def _tray_restart_deskflow(self, icon, item) -> None:
+        ok, detail = self.restart_deskflow()
+        if ok:
+            log.info("键鼠共享：%s", detail)
+        else:
+            log.warning("键鼠共享：%s", detail)
+
     def _tray_quit(self, icon, item) -> None:
         icon.stop()
 
@@ -741,6 +888,7 @@ class QuickSwitchApp:
             pystray.MenuItem("切到 Windows", self._tray_switch("win")),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("打开设置窗口", self._tray_open_console),
+            pystray.MenuItem("重启键鼠共享", self._tray_restart_deskflow),
             pystray.MenuItem("查看状态（写入日志）", self._tray_status),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", self._tray_quit),
@@ -1264,6 +1412,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="读取当前输入源并写入同一个值，测试 DDC 写入链路")
     parser.add_argument("--print-config", action="store_true", help="打印合并默认值后的生效配置")
     parser.add_argument("--init-config", action="store_true", help="生成默认配置文件后退出")
+    parser.add_argument("--deskflow-status", action="store_true",
+                        help="打印内置键鼠共享核心的路径、配置与运行状态后退出")
+    parser.add_argument("--start-deskflow", action="store_true",
+                        help="后台启动内置键鼠共享核心后退出（不打开 Deskflow 窗口）")
+    parser.add_argument("--stop-deskflow", action="store_true",
+                        help="停止由 QuickSwitch 启动的键鼠共享核心后退出")
+    parser.add_argument("--restart-deskflow", action="store_true",
+                        help="按当前配置重启键鼠共享核心后退出")
     parser.add_argument("--gen-secret", action="store_true",
                         help="生成一个 6 位配对码（写进两端配置的 auth.secret）后退出")
     parser.add_argument("--detect-inputs", action="store_true",
@@ -1332,6 +1488,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.print_config:
         print(json.dumps(cfg, indent=2, ensure_ascii=False))
         return 0
+    if args.deskflow_status:
+        print(json.dumps(deskflow_bridge.snapshot(cfg), indent=2, ensure_ascii=False))
+        return 0
+    if args.stop_deskflow:
+        ok, detail = deskflow_bridge.stop(cfg)
+        status = deskflow_bridge.snapshot(cfg)
+        status["detail"] = detail
+        print(json.dumps(status, indent=2, ensure_ascii=False))
+        return 0 if ok else 1
+    if args.start_deskflow or args.restart_deskflow:
+        peer_host = None
+        if str(cfg.get("role")) == "client" and str(cfg.get("peer_host") or "").lower() in ("", "auto"):
+            target = asyncio.run(resolve_peer(cfg, timeout=5.0))
+            if target:
+                peer_host = target[0]
+        runner = deskflow_bridge.restart if args.restart_deskflow else deskflow_bridge.start
+        ok, detail = runner(cfg, peer_host=peer_host)
+        status = deskflow_bridge.snapshot(cfg)
+        status["detail"] = detail
+        print(json.dumps(status, indent=2, ensure_ascii=False))
+        return 0 if ok else 1
     if args.status:
         try:
             return asyncio.run(cmd_status(cfg, path))

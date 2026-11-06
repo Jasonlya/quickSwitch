@@ -16,7 +16,7 @@ macOS 主机通过 WiFi 接入同一局域网；两台主机共用一台显示�
 
 | 组件 | 作用 | 运行位置 | 是否包含本仓库 |
 | --- | --- | --- | --- |
-| Deskflow | 一套键鼠控制两台电脑（软件 KVM、剪贴板文本共享） | 两端 | 否，需自行安装 |
+| Deskflow 无界面核心 | 一套键鼠控制两台电脑（软件 KVM、剪贴板文本共享） | 两端 | 是：随安装包内置官方 GPL-2.0 版本，由 QuickSwitch 管理，不启动 GUI |
 | Windows DXVA2 / m1ddc / ddcutil | DDC/CI 切换显示器输入源 | Windows 使用系统内置；macOS 需 m1ddc；Linux 可选 ddcutil | Windows 无需安装；macOS 需自行安装 |
 | **QuickSwitch** | 热键/托盘触发，切本地 DDC 并经 TCP 通知对端冗余切换 | 两端 | **是（本目录）** |
 | LocalSend | 局域网文件互传 | 两端 | 否 |
@@ -24,7 +24,7 @@ macOS 主机通过 WiFi 接入同一局域网；两台主机共用一台显示�
 
 ```
 物理键盘（插在 Windows）
-  |-- Deskflow 捕获      --> 切换键鼠控制权
+  |-- 内置核心捕获        --> 切换键鼠控制权（deskflow-core，无窗口）
   |-- QuickSwitch 捕获   --> 切换显示器信号源（Windows 用内置 DXVA2 / VCP 0x60）
           |-- TCP 通知 Mac --> Mac 端 m1ddc 再切一次（方案 10.1 的冗余保险）
 ```
@@ -65,6 +65,7 @@ quickswitch/
   config.py          配置加载、深度合并、校验、默认值生成
   ddc.py             DDC/CI 封装（Windows 原生 DXVA2 + macOS/Linux 命令模板 + 重试 + 读取）
   windows_ddc.py     Windows 原生 DDC 后端（user32/dxva2，枚举物理显示器并读写 VCP 0x60）
+  deskflow_bridge.py 内置 deskflow-core 检测、配置生成、进程启停与权限提示
   network.py         asyncio JSON Lines 通信（心跳、重连、双向互连、ACK、预共享密钥校验）
   discovery.py       可选：局域网 UDP 设备发现（peer_host = "auto"）
   webui.py           本地 Web 控制台：回环 HTTP 服务 + 令牌鉴权 + JSON API + 事件缓冲
@@ -74,21 +75,24 @@ quickswitch/
   requirements-build.txt  打包期依赖（PyInstaller / Pillow，只在构建机安装）
   packaging/
     quickswitch.spec        PyInstaller 配置（Windows 单文件 exe / macOS .app）
+    fetch-deskflow.py      下载/校验官方 Deskflow，并准备到 packaging/vendor
+    bundle-deskflow.py     把官方 Deskflow.app 原样嵌入打包后的 QuickSwitch.app
     build-macos.sh          macOS：打包 → 签名 → 公证 → 装订 → Gatekeeper 校验
     build-windows.ps1       Windows：打包 → Authenticode 签名 → 签名校验
     build-dmg.sh            macOS：把 .app 打成可拖拽安装的 DMG
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（1.0.3.0）
+    version_info.txt        Windows exe 的版本资源（2.0.0.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
+  THIRD_PARTY_NOTICES.md Deskflow 版本、GPL-2.0、源码与校验信息
   scripts/
     quickstart-windows.bat         Windows 端启动（保留控制台日志，便于排错）
     install-task.ps1               注册 Windows 任务计划（登录自启 + 最高权限）
     com.quickswitch.agent.plist    macOS launchd 自启模板
     selftest.py                    本机链路自检（无需第二台机器/显示器）
-  tests/              157 个单元/集成测试（unittest，无第三方依赖）
+  tests/              170 个单元/集成测试（unittest，无第三方依赖）
 ```
 
 ## 4. 快速开始
@@ -109,7 +113,7 @@ python main.py --init-config
 python main.py
 ```
 
-另需：安装 Deskflow（选 Server）；按需安装 LocalSend / Tailscale，见 §4.3 / §4.4。
+Deskflow 已随安装包内置（选 Server）；按需安装 LocalSend / Tailscale，见 §4.3 / §4.4。
 Windows 端不需要安装 ControlMyMonitor，程序默认使用系统内置 DXVA2。
 
 若 Windows 防火墙挡住了 `listen_port`（默认 8765）或自动发现端口（UDP 8766），用管理员 PowerShell 放行一次即可：
@@ -117,12 +121,12 @@ Windows 端不需要安装 ControlMyMonitor，程序默认使用系统内置 DXV
 ```powershell
 netsh advfirewall firewall add rule name="QuickSwitch" dir=in action=allow protocol=TCP localport=8765
 netsh advfirewall firewall add rule name="QuickSwitch Discovery" dir=in action=allow protocol=UDP localport=8766
+netsh advfirewall firewall add rule name="QuickSwitch Deskflow" dir=in action=allow protocol=TCP localport=24800
 ```
 
 ### 4.2 macOS（client）
 
 ```bash
-brew tap deskflow/tap && brew install deskflow   # 键鼠共享
 brew install m1ddc                               # DDC/CI 切换（仅 Apple Silicon）
 
 cd quickswitch
@@ -132,18 +136,41 @@ python3 main.py --status                         # 自检：工具 + 对端连�
 python3 main.py
 ```
 
-授权：系统设置 → 隐私与安全性 → **辅助功能** 勾选 Deskflow 与 deskflow；
-macOS Sequoia 还需在「本地网络」中允许 Deskflow。
+键鼠共享核心无需通过 Homebrew 安装：DMG 内置官方 `Deskflow.app`，QuickSwitch 只执行其中的 `deskflow-core`。从源码运行时先执行
+`python3 packaging/fetch-deskflow.py --target macos-arm64`，桥接模块会使用 `packaging/vendor`。
 
-### 4.3 Deskflow（键鼠共享 + 剪贴板）
+授权：系统设置 → 隐私与安全性 → **辅助功能**、**输入监控**、**本地网络**勾选 QuickSwitch；若列表里出现 `Deskflow` 或 `deskflow-core`，也一并勾选。
 
-1. Windows 端选 **Server**，配置屏幕布局（Mac 在左/右/上/下）。
-2. macOS 端选 **Client**，填 Windows 的 IP 或主机名。
-3. 两端配置**相同热键**：`Ctrl+Alt+1 → Switch to screen: Mac`，`Ctrl+Alt+2 → Switch to screen: Windows`。
-4. 剪贴板文本同步是 Deskflow 自带能力，无需额外配置。
+### 4.3 内置键鼠共享（Deskflow 核心 + 剪贴板）
 
-QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到同一个热键——
-这正是「一个快捷键同时切显示器 + 切键鼠」的关键。两个热键必须在 Deskflow 与 `config.json` 中保持一致。
+QuickSwitch 直接调用官方 `deskflow-core`，不启动 Deskflow GUI。`deskflow_bridge.py` 负责：
+
+1. 按角色自动生成配置：Windows `server`，macOS `client`。
+2. 写入 QuickSwitch 对端地址、TCP 端口、屏幕左右关系、剪贴板开关和两个切换热键。
+3. 用 `deskflow-core <server|client> --settings <Deskflow.conf> --new-instance` 后台启动。
+4. 记录 `deskflow.pid`，退出 QuickSwitch 时停止该进程；设置页可手动重启。
+
+默认把 TLS 关闭，避免首次连接还要在两端确认证书指纹，保证完全无界面。连接只应在可信局域网内使用；QuickSwitch 自己的 TCP 通知仍由 `auth.secret` 校验。
+
+默认状态目录：`~/.quickswitch/deskflow`。
+
+- `Deskflow.conf`：QuickSwitch 每次启动生成的主配置。
+- `Deskflow-server.conf`：仅 Windows 服务端使用的屏幕布局和热键。
+- `deskflow.log`：无界面核心日志。
+- `deskflow.pid`：QuickSwitch 管理进程的 PID。
+
+`deskflow.auto_start=true`（默认）时随 QuickSwitch 启动；`peer_host` 为 `auto` 的 macOS 客户端会等待 UDP 发现 Windows 后再启动或重启核心。退出 QuickSwitch 会同步停止核心。
+
+内置位置：
+
+- macOS：`QuickSwitch.app/Contents/Resources/deskflow/Deskflow.app`
+- Windows：`%ProgramFiles%\QuickSwitch\deskflow\deskflow-core.exe`
+
+构建机由 `packaging/fetch-deskflow.py` 下载并校验官方 Deskflow `1.27.0`，macOS 由 `bundle-deskflow.py` 在 PyInstaller 完成后原样嵌入，Windows 由 NSIS 安装到 QuickSwitch 目录。用户不需要安装或打开 Deskflow 客户端，也不需要手工填写 Server/Client、屏幕布局或热键。
+
+Windows 安装包会自动放行 TCP `24800`。macOS 首次仍需在「隐私与安全性」中授予辅助功能、输入监控和本地网络权限；修改后点设置页「重启键鼠共享」。若日志出现 `assistive devices does not trust this process`，设置页会标记需要权限并提供系统设置入口。两端内置版本统一为 `1.27.0`。
+
+QuickSwitch 注册热键时使用 `suppress=False`，所以内置核心能收到同一个热键；`deskflow_bridge.py` 会把 `config.json` 的热键转换成 Deskflow 的 `keystroke(...) = switchToScreen(...)` 配置，无需在客户端里重复设置。
 
 ### 4.4 网络（三选一）
 
@@ -185,6 +212,12 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到�
     "retry_delay": 0.4
   },
   "hotkeys": { "switch_to_mac": "ctrl+alt+1", "switch_to_win": "ctrl+alt+2" },
+  "deskflow": {
+    "auto_start": true,
+    "path": "",
+    "port": 24800,
+    "mac_side": "left"
+  },
   "network": {
     "ping_interval": 10.0,
     "ack_timeout": 4.0,
@@ -226,7 +259,11 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到�
 | `ddc.read_regex` | 从读取命令输出里抓数值的正则（含捕获组取第 1 组）；不填则按平台约定解析 |
 | `ddc.settle` | 切换后等待显示器稳定的秒数（默认 1.2），`--detect-inputs` 探测与校验时使用 |
 | `ddc.retries` | DDC 失败重试次数（显示器偶发无响应很常见，默认重试 2 次） |
-| `hotkeys.*` | 仅 `server` 生效；必须与 Deskflow 中的热键一致 |
+| `hotkeys.*` | 切换热键；会自动同步到内置键鼠共享配置 |
+| `deskflow.auto_start` | QuickSwitch 启动时是否自动拉起无界面核心，默认 `true`；退出 QuickSwitch 会同步停止它 |
+| `deskflow.port` | 键鼠共享 TCP 端口，默认 `24800`；两端必须一致 |
+| `deskflow.mac_side` | Mac 相对 Windows 的屏幕方向：`left` 或 `right`，默认 `left` |
+| `deskflow.path` | 高级选项：强制指定 Deskflow.app / deskflow-core 路径；留空自动使用安装包内置核心 |
 | `network.ack_timeout` | 等待对端切换确认的超时 |
 | `discovery.broadcast` | 广播地址，可写数组；留空则只用「按本机网段推导的 x.y.z.255」 |
 | `web.enabled` | 是否启动本地 Web 控制台（默认开；也可用 `--no-web` 临时关闭） |
@@ -244,6 +281,10 @@ python main.py --once mac      # 执行一次完整切换后退出（验证 DDC 
 python main.py --detect-inputs # 识别显示器输入源取值并写回配置（交互式向导）
 python main.py --dry-run       # 只打印将执行的 DDC 操作，不动硬件
 python main.py --print-config  # 打印合并默认值后的生效配置
+python main.py --deskflow-status  # 打印内置核心路径、配置与运行状态（JSON）
+python main.py --start-deskflow   # 后台启动内置核心后退出（不打开窗口）
+python main.py --restart-deskflow # 按当前配置重启内置核心后退出
+python main.py --stop-deskflow    # 停止由 QuickSwitch 启动的核心
 python main.py --no-tray       # 无托盘后台运行
 python main.py --web-port 9000 # Web 控制台换端口（默认 8767）
 python main.py --no-web        # 关闭 Web 控制台，只留托盘/热键
@@ -326,7 +367,7 @@ python3 main.py --gen-secret
 
 ```
 python3 main.py --status
-  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.3）
+  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=2.0.0）
   密钥校验     : 已通过（hmac-sha256）
 ```
 
@@ -355,13 +396,19 @@ python3 main.py --status
 
 | 平台 | 产物 | 签名方式 | 脚本 |
 | --- | --- | --- | --- |
-| Windows | `dist/QuickSwitch.exe`（**单文件**，自带 Python 运行时、WebView 依赖与 `ui/`） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` |
-| macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/` 与 WKWebView 桥接依赖） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
+| Windows | `dist/QuickSwitch.exe` + NSIS 安装包（自带 Python 运行时、`ui/` 和 `deskflow\` 便携版） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` + `installer.nsi` |
+| macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`、WKWebView 桥接依赖和嵌套 `Deskflow.app`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.0.3`），
-spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.0.3.0`），不会两处漂移。
+两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `2.0.0`），
+spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`2.0.0.0`），不会两处漂移。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
+
+Deskflow 二进制不提交进 Git。构建前由 `packaging/fetch-deskflow.py` 从官方 `v1.27.0` Release
+下载并校验 SHA256；脚本只接受固定的 Windows x64 便携包与 macOS arm64 DMG，校验失败会中止构建。
+Windows 由 NSIS 复制到安装目录，macOS 在 PyInstaller 完成后由 `bundle-deskflow.py` 用 `ditto`
+原样嵌入 `Contents/Resources/deskflow`，避免 PyInstaller 重写嵌套 Qt framework 的软链。GPL-2.0
+许可、固定版本与源码地址见 `THIRD_PARTY_NOTICES.md`；Release 同时上传对应 Deskflow 源码包。
 
 ### 7.1 macOS：打包 → 签名 → 公证
 
@@ -387,7 +434,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-1.0.3.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-2.0.0.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -432,31 +479,35 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 普通用户下载的是安装包，不需要源码和 Python：
 
 - macOS：`build-macos.sh` 产出 `.app`，再由 `build-dmg.sh` 打成 DMG（内含 `Applications` 快捷方式与安装说明）。
-- Windows：PyInstaller 产出单文件 `QuickSwitch.exe`，再由 NSIS 的 `installer.nsi` 打成 `QuickSwitch-Setup-<版本>.exe`。
+- Windows：PyInstaller 产出单文件 `QuickSwitch.exe`，再由 NSIS 的 `installer.nsi` 连同 `deskflow\` 打成 `QuickSwitch-Setup-<版本>.exe`。
 
 本地生成 macOS 安装包：
 
 ```bash
+python3 packaging/fetch-deskflow.py --target macos-arm64
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-1.0.3-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-2.0.0-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
 
 ```powershell
+python packaging\fetch-deskflow.py --target windows-x64
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=1.0.3 packaging\installer.nsi
+makensis /DVERSION=2.0.0 packaging\installer.nsi
 ```
 
-GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后自动构建
-macOS `arm64` DMG 和 Windows Setup，并创建 GitHub Release、上传 `SHA256SUMS.txt` 与 `INSTALL.md`。
+GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后先在 macOS/Windows
+跑测试，再自动下载固定版本 Deskflow、构建安装包，并在 Windows Runner 上执行静默安装 → 检查内置核心 →
+启动/停止无界面核心 → 静默卸载的验收。Release 会同时上传安装包、`SHA256SUMS.txt`、`INSTALL.md`、
+`THIRD_PARTY_NOTICES.md` 与 Deskflow 对应源码包。
 
 macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在非 arm64 构建机上直接失败，
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v1.0.3
-git push origin v1.0.3
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -492,16 +543,18 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 装到目标机后还需要（与源码部署一致，见 §4）：
 
-- Windows：NSIS 安装包会自动放行 TCP 8765（切换通知）与 UDP 8766（自动发现）；直接运行单文件 exe 时需手动执行
+- Windows：NSIS 安装包会自动放行 TCP 8765（切换通知）、UDP 8766（自动发现）和键鼠共享 TCP 24800；直接运行单文件 exe 时需手动执行
   `netsh advfirewall firewall add rule name="QuickSwitch" dir=in action=allow protocol=TCP localport=8765`
-  和 `netsh advfirewall firewall add rule name="QuickSwitch Discovery" dir=in action=allow protocol=UDP localport=8766`。
+  、`netsh advfirewall firewall add rule name="QuickSwitch Discovery" dir=in action=allow protocol=UDP localport=8766`
+  和 `netsh advfirewall firewall add rule name="QuickSwitch Deskflow" dir=in action=allow protocol=TCP localport=24800`。
   注册全局热键需要管理员权限（托盘图标本身不需要）。
-- macOS：Deskflow 需要「辅助功能」权限；首次被 QuickSwitch 访问局域网时允许弹窗。
+- macOS：内置键鼠共享核心需要「辅助功能」「输入监控」权限；首次被 QuickSwitch 访问局域网时允许弹窗。
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v1.0.3` 增强 Windows 原生 DDC 诊断与 OSD 排查提示，macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v2.0.0` 将官方 Deskflow 无界面核心直接集成到 QuickSwitch，macOS 安装包仅提供 Apple Silicon（arm64）。
 
+- **v2.0.0**：官方 Deskflow 1.27.0 无界面核心随 QuickSwitch 打包，不再要求用户安装或打开 Deskflow 客户端。应用自动按平台选择服务端/客户端、发现 Windows 地址、生成共享配置并管理核心进程；键鼠共享、热键、端口和屏幕方向可在设置页即时调整。Windows 安装包内置核心并放行 TCP 24800，macOS App 内置官方 `Deskflow.app`，退出 QuickSwitch 时同步停止核心。设置页新增键鼠共享状态、日志和 macOS 权限引导；全新大版本保留 DDC、6 位配对码、配置向导与 Windows DPI 修复。
 - **v1.0.3**：Windows 原生 DDC 会先按 `display_index` 选择物理显示器，失败后继续尝试其它显示器；读取失败/写入失败会记录具体 WinError。新增 `--ddc-selftest`（读取当前输入源并写回同一个值，不改变画面）；DDC 错误日志、配置向导、`--status` 和安装文档会直接说明如何在 OSD 中开启 DDC/CI。Windows 安装包新增 UDP 8766 自动发现防火墙规则。157 项测试通过。
 - **已验证**：首次启动自动打开四步配置向导（连接 / 安全 / 显示器 / 完成）；
   `setup.completed` 支持旧配置迁移，已有配置不会重复弹向导。157 项测试通过，`node --check ui/app.js`
@@ -509,16 +562,19 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 - **已验证**：`build-macos.sh --no-sign` 产出 arm64 `.app`，`build-dmg.sh` 产出 DMG 并通过
   `hdiutil verify`；成品 App 会拉起独立的 `--settings-window` 子进程，`/api/status` 返回真实
   `setup.completed`、DDC 后端与输入源状态。
+- **已验证（内置 Deskflow）**：官方 macOS arm64 `Deskflow.app` 原样嵌入
+  `QuickSwitch.app/Contents/Resources/deskflow`，嵌套 App 签名校验通过；用 `--deskflow-status`
+  能识别 `bundled=true`，用 `--start-deskflow` 能从嵌套路径实际启动。DMG 内也已确认包含该 App。
 - **已验证（本机 macOS）**：`m1ddc` 读取当前输入源正常；运行中的 App 实际执行
   `Windows → 15`、`Mac → 18` 两次 DDC 切换并回读一致。macOS 自动使用 `client` 角色，
   Windows 自动使用 `server` 角色。
 - **已验证（Windows 高 DPI 配置）**：Windows EXE manifest 声明 Per-Monitor V2，
   `settings_window.py` 在 WebView2 创建前提供运行时兜底；manifest 解析和专项测试通过。
-- **发布产物**：GitHub Actions 在 `v1.0.3` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **发布产物**：GitHub Actions 在 `v2.0.0` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；
-  Windows 实机安装 UI、SmartScreen 与卸载流程也尚未在实体 Windows 上人工点测。
+  Windows 安装包的静默安装/启动/卸载验收脚本已加入 release workflow，但尚未在实体 Windows 上通过 CI 跑完。
   首次在真实签名环境运行时建议先跑 `--check` / `-Check` 看缺什么。
 
 ## 8. 验收清单（对应方案第 9 节）
@@ -644,7 +700,8 @@ python3 main.py --status          # 应显示「密钥校验：已通过（hmac-
 | --- | --- |
 | 启动报「监听端口 8765 不可用」 | 已有一个 QuickSwitch 在跑（退出码 3）；或改 `listen_port` |
 | 按热键无反应 | 需管理员权限（用 `install-task.ps1` 或「以管理员身份运行」）；检查是否与其他软件抢占热键；`--log-level DEBUG` 看是否注册成功 |
-| 只切了显示器和键鼠之一 | 检查 Deskflow 与 `config.json` 的热键是否完全一致 |
+| QuickSwitch 没拉到键鼠共享核心 | 运行 `--deskflow-status` 看 `installed` / `bundled` / `managed` / `last_log`；安装包内置版应分别位于 `QuickSwitch\deskflow` 或 App 的 `Contents/Resources/deskflow`；也可在设置页点「重启键鼠共享」 |
+| 只切了显示器和键鼠之一 | 查看设置页「键鼠共享」状态和 `~/.quickswitch/deskflow/deskflow.log`；确认两端 QuickSwitch 已连接、`deskflow.port` 一致、`deskflow.mac_side` 与实际屏幕方向一致；macOS 权限不足时重启核心 |
 | 显示器不切换，日志显示 DDC 失败 | 确认 `ddc.display_index`；显示器需支持并开启 DDC/CI（部分型号需在 OSD 菜单打开）；建议视频线直连、避免转接。Windows 原生 DXVA2 失败时，ControlMyMonitor 只是可选回退，不是必需依赖 |
 | Windows 提示找不到 `ControlMyMonitor.exe` | 这是旧版安装包的外部回退路径。最新版应使用原生 DXVA2；升级后重跑 `--status`，若仍看不到原生后端，检查显示器 DDC/CI 与连接方式 |
 | `--status` 显示「无法读取」 | 显示器不支持/未开启读 VCP 0x60，或当前后端不可用。此时仍可能正常发送切换，只是无法回读校验：可用 §8.1 的方法确认，或配置 `ddc.read_template` 使用支持读取的工具 |
@@ -690,7 +747,7 @@ TCP 双向收发/心跳/重连/端口占用/单向可达回退、设备发现报
 （令牌、Host/Origin 防护、状态结构、切换、配置白名单与「需重启」判定、静态文件与目录穿越防护）、
 预共享密钥（校验码绑定两个 nonce、密钥不一致时丢弃 switch 与伪造的 switch_ack、
 一端未配置、重放旧校验码被拒、`--gen-secret` 与 `--status` 输出不泄漏密钥）、
-命令行子进程冒烟测试。
+Deskflow 安装检测 / 后台启动 / 自动启动开关，命令行子进程冒烟测试。
 
 想在不动硬件的情况下看界面，可以用模拟 DDC 工具起一个实例（真的会执行「DDC」命令，
 只是这个命令是个写状态文件的脚本）：

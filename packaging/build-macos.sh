@@ -183,6 +183,9 @@ if ! "${BUILD_PY}" "${SCRIPT_DIR}/make-icons.py" --check >/dev/null 2>&1; then
     "${BUILD_PY}" "${SCRIPT_DIR}/make-icons.py"
 fi
 
+step "准备内置 Deskflow"
+"${BUILD_PY}" "${SCRIPT_DIR}/fetch-deskflow.py" --target macos-arm64 --if-missing
+
 # ----------------------------------------------------------------- 打包
 step "PyInstaller 打包"
 QS_CODESIGN_IDENTITY="$IDENTITY" \
@@ -192,7 +195,12 @@ QS_ENTITLEMENTS="${SCRIPT_DIR}/entitlements.plist" \
     "${SCRIPT_DIR}/quickswitch.spec"
 
 [ -x "$EXECUTABLE" ] || die "打包失败：找不到 ${EXECUTABLE}"
+"${BUILD_PY}" "${SCRIPT_DIR}/bundle-deskflow.py" --app "$APP_PATH"
+BUNDLED_DESKFLOW="$(find "${APP_PATH}/Contents" -type d -name Deskflow.app -print -quit)"
+[ -n "$BUNDLED_DESKFLOW" ] || die "打包失败：QuickSwitch.app 内没有 Deskflow.app"
+codesign --verify --deep --strict "$BUNDLED_DESKFLOW" || die "内置 Deskflow.app 签名校验失败"
 info "已生成 $(basename "$APP_PATH")（$(du -sh "$APP_PATH" | cut -f1)）"
+info "内置 Deskflow：${BUNDLED_DESKFLOW#${APP_PATH}/}"
 
 # ----------------------------------------------------------------- 未签名路径
 if [ "$DO_SIGN" = "0" ]; then
@@ -202,6 +210,7 @@ if [ "$DO_SIGN" = "0" ]; then
   未签名 + 未公证，拷到别的机器会被 Gatekeeper 拦下；本机自测可先去掉隔离属性：
     xattr -dr com.apple.quarantine "${APP_PATH}"
   命令行自检（.app 的可执行文件在包里，直接跑即可）：
+    "${EXECUTABLE}" --deskflow-status
     "${EXECUTABLE}" --status
     "${EXECUTABLE}" --print-config
 EOF
@@ -295,5 +304,6 @@ cat <<EOF
   SHA256 ：$(shasum -a 256 "$APP_PATH/Contents/MacOS/QuickSwitch" | cut -d' ' -f1)
   装到别的机器：拖进「应用程序」，首次启动若提示「无法验证开发者」，
   在「系统设置 → 隐私与安全性」里点「仍要打开」即可（公证通过后通常不会出现）。
-  别忘了授权：本机是 client 时无需额外权限；Deskflow 需要「辅助功能」权限。
+  键鼠共享：核心随 QuickSwitch 自动启动，无需打开 Deskflow 客户端。
+  首次使用请在「系统设置 → 隐私与安全性」允许 QuickSwitch 使用辅助功能和输入监控。
 EOF

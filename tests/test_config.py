@@ -77,6 +77,34 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(config_module.ConfigError):
             config_module.load_config()
 
+    def test_invalid_deskflow_auto_start_raises(self) -> None:
+        self.path.write_text(
+            json.dumps({"deskflow": {"auto_start": "yes"}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
+    def test_invalid_deskflow_path_raises(self) -> None:
+        self.path.write_text(
+            json.dumps({"deskflow": {"path": 42}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
+    def test_invalid_deskflow_port_raises(self) -> None:
+        self.path.write_text(
+            json.dumps({"deskflow": {"port": 70000}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
+    def test_invalid_deskflow_mac_side_raises(self) -> None:
+        self.path.write_text(
+            json.dumps({"deskflow": {"mac_side": "top"}}), encoding="utf-8"
+        )
+        with self.assertRaises(config_module.ConfigError):
+            config_module.load_config()
+
     def test_broken_json_raises(self) -> None:
         self.path.write_text("{ not json", encoding="utf-8")
         with self.assertRaises(config_module.ConfigError):

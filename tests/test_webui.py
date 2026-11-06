@@ -253,10 +253,14 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(set(payload["values"]), {"role", "peer_host", "peer_port",
                                                   "listen_port", "debounce", "log_level",
                                                   "setup", "hotkeys", "network", "discovery",
-                                                  "auth", "ddc"})
+                                                  "auth", "deskflow", "ddc"})
         self.assertIn("role", payload["restart_prefixes"])
         self.assertIn("auth.", payload["restart_prefixes"])
+        self.assertNotIn("deskflow.", payload["restart_prefixes"])
+        self.assertNotIn("hotkeys.", payload["restart_prefixes"])
         self.assertIn("ddc.", payload["immediate_prefixes"])
+        self.assertIn("deskflow.", payload["immediate_prefixes"])
+        self.assertIn("hotkeys.", payload["immediate_prefixes"])
 
     def test_config_save_accepts_pre_shared_secret(self) -> None:
         secret = "two-machines-same-secret-2026"
@@ -270,6 +274,19 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(self.app.cfg["auth"]["secret"], secret)
         on_disk = json.loads(self.config_file.read_text(encoding="utf-8"))
         self.assertEqual(on_disk["auth"]["secret"], secret)
+
+    def test_deskflow_config_save_applies_without_full_restart(self) -> None:
+        status, payload, _ = self.request(
+            "POST", "/api/config",
+            {"values": {"deskflow": {"port": 24999, "mac_side": "right"}}},
+            token=self.token,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["live_applied"])
+        self.assertFalse(payload["restart_required"])
+        self.assertEqual(self.app.cfg["deskflow"]["port"], 24999)
+        self.assertEqual(self.app.cfg["deskflow"]["mac_side"], "right")
 
     def test_setup_completion_is_persisted_without_restart(self) -> None:
         body = {"values": {

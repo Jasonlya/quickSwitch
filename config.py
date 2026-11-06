@@ -68,6 +68,12 @@ DEFAULTS: Dict[str, Any] = {
         "switch_to_mac": "ctrl+alt+1",
         "switch_to_win": "ctrl+alt+2",
     },
+    "deskflow": {
+        "auto_start": True,           # QuickSwitch 启动时拉起内置的 Deskflow 无界面核心
+        "path": "",                   # 留空自动检测；高级用户可指定 Deskflow.app / deskflow-core
+        "port": 24800,                # Deskflow 键鼠共享端口（与 QuickSwitch 的 8765 不同）
+        "mac_side": "left",           # Mac 屏幕在 Windows 的左侧还是右侧
+    },
     "network": {
         "ping_interval": 10.0,        # 心跳间隔
         "ack_timeout": 4.0,           # 等待对端切换确认的超时
@@ -244,6 +250,24 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
             value = hotkeys.get(field)
             if not isinstance(value, str) or not value.strip():
                 warnings.append(f"hotkeys.{field} 为空，该热键不会被注册")
+
+    deskflow = cfg.get("deskflow") or {}
+    if not isinstance(deskflow, dict):
+        raise ConfigError("deskflow 必须是 JSON 对象")
+    auto_start = deskflow.get("auto_start", True)
+    if not isinstance(auto_start, bool):
+        raise ConfigError(f"deskflow.auto_start 必须是布尔值，当前为 {auto_start!r}")
+    deskflow_path = deskflow.get("path", "")
+    if not isinstance(deskflow_path, str):
+        raise ConfigError(f"deskflow.path 必须是字符串，当前为 {deskflow_path!r}")
+    deskflow_port = deskflow.get("port", 24800)
+    if isinstance(deskflow_port, bool) or not isinstance(deskflow_port, int):
+        raise ConfigError(f"deskflow.port 必须是整数，当前为 {deskflow_port!r}")
+    if not 1 <= deskflow_port <= 65535:
+        raise ConfigError(f"deskflow.port 超出范围：{deskflow_port}")
+    mac_side = deskflow.get("mac_side", "left")
+    if mac_side not in ("left", "right"):
+        raise ConfigError(f"deskflow.mac_side 必须是 left 或 right，当前为 {mac_side!r}")
 
     peer_host = str(cfg.get("peer_host") or "").strip()
     discovery_enabled = bool((cfg.get("discovery") or {}).get("enabled"))

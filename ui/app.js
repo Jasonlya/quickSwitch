@@ -34,6 +34,24 @@ function authText(auth) {
   return "未通过（两端 auth.secret 不一致，对端发来的切换请求会被丢弃）";
 }
 
+function deskflowText(info) {
+  if (!info) return DASH;
+  if (!info.installed) return "缺少内置核心，请重新安装 QuickSwitch";
+  if (info.permission_required) return "需要 macOS 辅助功能权限";
+  const mode = info.mode === "server" ? "Windows 服务端" : "macOS 客户端";
+  if (info.running) return "运行中 · " + mode + " · TCP " + text(info.port);
+  if (!info.auto_start) return "已停止 · 自动启动已关闭";
+  return "未运行 · 等待启动 · " + mode;
+}
+
+function deskflowPermissionText(info) {
+  if (!info) return DASH;
+  if (info.system !== "Darwin") return "Windows 无需额外授权";
+  if (info.accessibility === false) return "辅助功能未授权；授权后点「重启键鼠共享」";
+  if (info.accessibility === true) return "辅助功能已授权";
+  return "读取不到授权状态；如键鼠无效请检查辅助功能与输入监控";
+}
+
 function clock(iso) {
   if (!iso) return DASH;
   const date = new Date(iso);
@@ -123,6 +141,7 @@ function syncSetupDevice(status) {
   $("setupFactHost").textContent = text(status.host && status.host.name);
   $("setupFactRole").textContent = setupRoleExplanation(role, platformName);
   $("setupFactIps").textContent = ipText;
+  $("setupPermissionNote").hidden = platformName !== "darwin";
 }
 
 function renderSetupTool(status) {
@@ -544,6 +563,7 @@ function bindSetupWizard() {
   $("setupProbeInputs").addEventListener("click", probeSetupInputs);
   $("setupAssignMac").addEventListener("click", () => assignSetupInput("mac"));
   $("setupAssignWin").addEventListener("click", () => assignSetupInput("win"));
+  $("setupOpenAccessibility").addEventListener("click", () => openPrivacySettings("accessibility"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && setupState.open && !setupState.busy) closeSetupWizard();
   });
@@ -755,6 +775,20 @@ function renderStatus(status) {
     ["说明", text(status.hotkeys.reason)],
   ]);
 
+  const deskflow = status.deskflow || {};
+  rows($("kvDeskflow"), [
+    ["状态", deskflowText(deskflow)],
+    ["连接方向", deskflow.mode === "server" ? "本机提供键鼠（服务端）" : "本机接收键鼠（客户端）"],
+    ["共享端口", deskflow.mode === "server" ? "TCP " + text(deskflow.port) : "连接 " + text(deskflow.peer_host)],
+    ["核心来源", deskflow.bundled ? "QuickSwitch 内置" : text(deskflow.path)],
+    ["macOS 权限", deskflowPermissionText(deskflow)],
+    ["最近状态", text(deskflow.detail)],
+    ["配置", text(deskflow.config_path)],
+    ["日志", text(deskflow.log_path)],
+  ]);
+  $("deskflowState").textContent = text(deskflow.detail);
+  $("btnOpenAccessibility").hidden = !(status.host && status.host.platform === "Darwin");
+
   $("probeDefault").textContent = (status.probe_candidates || []).join(", ") || DASH;
   renderOwnership(status);
   syncSetupFromStatus(status);
@@ -837,6 +871,30 @@ async function probeInputs() {
   await refreshStatus();
 }
 
+async function deskflowAction(path, pendingText) {
+  for (const id of ["btnRestartDeskflow", "btnStopDeskflow"]) $(id).disabled = true;
+  $("deskflowState").textContent = pendingText;
+  try {
+    const result = await api(path, { method: "POST", body: {} });
+    $("deskflowState").textContent = result.detail || (result.ok ? "已完成" : "操作未完成");
+    await refreshStatus();
+  } catch (error) {
+    $("deskflowState").textContent = "操作失败：" + error.message;
+    notify("键鼠共享操作失败：" + error.message, "error");
+  } finally {
+    for (const id of ["btnRestartDeskflow", "btnStopDeskflow"]) $(id).disabled = false;
+  }
+}
+
+async function openPrivacySettings(kind) {
+  try {
+    await api("/api/open-privacy", { method: "POST", body: { kind } });
+    $("deskflowState").textContent = "已打开系统设置。授权后回到这里点「重启键鼠共享」。";
+  } catch (error) {
+    $("deskflowState").textContent = "无法打开系统设置：" + error.message;
+  }
+}
+
 /* ---------------------------------------------------------------- 配置 */
 const CONFIG_FIELDS = [
   { group: "基础", fields: [
@@ -850,6 +908,12 @@ const CONFIG_FIELDS = [
   { group: "热键", fields: [
     { path: "hotkeys.switch_to_mac", type: "text" },
     { path: "hotkeys.switch_to_win", type: "text" },
+  ] },
+  { group: "键鼠共享（内置，无需打开 Deskflow）", fields: [
+    { path: "deskflow.auto_start", type: "checkbox" },
+    { path: "deskflow.port", type: "number", min: 1, max: 65535 },
+    { path: "deskflow.mac_side", type: "select", options: ["left", "right"] },
+    { path: "deskflow.path", type: "text" },
   ] },
   { group: "网络", fields: [
     { path: "network.ack_timeout", type: "number", min: 0.1, step: 0.5 },
@@ -1020,7 +1084,9 @@ async function saveConfig() {
   try {
     const result = await api("/api/config", { method: "POST", body: { values } });
     let message = "已保存 " + result.changed.length + " 项：" + result.changed.join("、");
-    if (result.restart_required) {
+    if (result.live_applied) {
+      message += " ｜ 已立即生效";
+    } else if (result.restart_required) {
       message += " ｜ 需重启生效：" + result.restart_keys.join("、");
     }
     $("configState").textContent = message;
@@ -1098,6 +1164,9 @@ async function bootstrap() {
   $("btnWin").addEventListener("click", () => switchTo("win"));
   $("btnRead").addEventListener("click", readInput);
   $("btnProbe").addEventListener("click", probeInputs);
+  $("btnRestartDeskflow").addEventListener("click", () => deskflowAction("/api/deskflow/restart", "重启中 …"));
+  $("btnStopDeskflow").addEventListener("click", () => deskflowAction("/api/deskflow/stop", "停止中 …"));
+  $("btnOpenAccessibility").addEventListener("click", () => openPrivacySettings("accessibility"));
   $("btnSave").addEventListener("click", saveConfig);
   $("btnRevert").addEventListener("click", () => api("/api/config").then(renderConfig));
   bindSetupWizard();

@@ -30,6 +30,7 @@ from config import ConfigError
 from config import save_config as save_config_file
 from config import validate as validate_config
 from ddc import DEFAULT_INPUT_CANDIDATES
+import deskflow_bridge
 
 log = logging.getLogger("webui")
 
@@ -87,6 +88,7 @@ EDITABLE: Dict[str, Any] = {
                 "reconnect_max_interval": None, "connect_wait": None},
     "discovery": {"enabled": None, "port": None, "interval": None, "ttl": None, "broadcast": None},
     "auth": {"secret": None},
+    "deskflow": {"auto_start": None, "path": None, "port": None, "mac_side": None},
     "ddc": {
         "monitor_id": None,
         "display_index": None,
@@ -112,6 +114,8 @@ IMMEDIATE_PREFIXES = (
     "debounce",
     "network.",
     "log_level",
+    "hotkeys.",
+    "deskflow.",
 )
 
 # 必须重启进程才生效的字段
@@ -121,7 +125,6 @@ RESTART_PREFIXES = (
     "peer_port",
     "listen_port",
     "auth.",
-    "hotkeys.",
     "discovery.",
 )
 
@@ -368,6 +371,7 @@ class WebConsole:
                 "registered": bool(app.hotkeys_registered),
                 "reason": app.hotkeys_reason,
             },
+            "deskflow": app.deskflow_snapshot(),
             "events_seq": self.events.last_seq,
         }
 
@@ -401,6 +405,22 @@ class WebConsole:
             "candidates": values or list(DEFAULT_INPUT_CANDIDATES),
             "restored": True,
         }
+
+    def restart_deskflow(self) -> Dict[str, Any]:
+        ok, detail = self.app.restart_deskflow()
+        return {"ok": ok, "detail": detail, "deskflow": self.app.deskflow_snapshot()}
+
+    def stop_deskflow(self) -> Dict[str, Any]:
+        ok, detail = deskflow_bridge.stop(self.app.cfg)
+        self.app._refresh_deskflow_status()
+        self.app.deskflow_status["detail"] = detail
+        return {"ok": ok, "detail": detail, "deskflow": self.app.deskflow_snapshot()}
+
+    def open_privacy_settings(self, kind: str) -> Dict[str, Any]:
+        ok = deskflow_bridge.open_macos_privacy_settings(kind)
+        if not ok:
+            raise ValueError("不支持的权限设置项，或当前系统不是 macOS")
+        return {"ok": True, "kind": kind}
 
     def config_view(self) -> Dict[str, Any]:
         cfg = self.app.cfg
@@ -441,10 +461,14 @@ class WebConsole:
         apply_into(cfg, values)
         saved = save_config_file(cfg, str(self.app.config_file))
         log.info("Web 控制台更新了配置：%s", "、".join(changed) or "（无变化）")
+        live_applied = bool(self.app.apply_live_config(changed)) if changed else False
+        if live_applied:
+            restart_keys = []
         return {
             "ok": True,
             "saved": str(saved),
             "changed": changed,
+            "live_applied": live_applied,
             "restart_required": bool(restart_keys),
             "restart_keys": restart_keys,
             "values": self.config_view()["values"],
@@ -575,6 +599,12 @@ class WebConsole:
                         self._json(200, console.probe_inputs(candidates))
                     elif path in ("/api/config", "/api/config/"):
                         self._json(200, console.save_config(payload))
+                    elif path == "/api/deskflow/restart":
+                        self._json(200, console.restart_deskflow())
+                    elif path == "/api/deskflow/stop":
+                        self._json(200, console.stop_deskflow())
+                    elif path == "/api/open-privacy":
+                        self._json(200, console.open_privacy_settings(str(payload.get("kind") or "")))
                     else:
                         self._error(404, "未知 API")
                 except TimeoutError:

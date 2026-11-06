@@ -59,11 +59,22 @@ elif IS_WIN:
 else:
     hiddenimports += available("pystray._xorg") + available("pystray._appindicator")
 
+datas = [
+    (str(PROJECT_DIR / "ui"), "ui"),
+    (str(PROJECT_DIR / "THIRD_PARTY_NOTICES.md"), "."),
+]
+if IS_MAC:
+    deskflow_app = PROJECT_DIR / "packaging" / "vendor" / "deskflow" / "macos-arm64" / "Deskflow.app"
+    if not deskflow_app.is_dir():
+        raise SystemExit(
+            "缺少内置 Deskflow：先运行 python3 packaging/fetch-deskflow.py --target macos-arm64"
+        )
+
 analysis = Analysis(
     [str(PROJECT_DIR / "main.py")],
     pathex=[str(PROJECT_DIR)],
     binaries=[],
-    datas=[(str(PROJECT_DIR / "ui"), "ui")],   # Web 控制台前端随包分发
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

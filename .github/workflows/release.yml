@@ -9,9 +9,27 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装依赖
+        run: python -m pip install -r requirements.txt
+      - name: 单元测试
+        run: python -m unittest discover -s tests -t .
+
   macos:
     name: macOS DMG (arm64)
     runs-on: macos-15
+    needs: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,8 +44,21 @@ jobs:
           pip install -r requirements.txt -r packaging/requirements-build.txt
       - name: 验证图标
         run: test -s packaging/icon.icns && test -s packaging/icon.png
+      - name: 准备内置 Deskflow
+        run: python3 packaging/fetch-deskflow.py --target macos-arm64 --if-missing
       - name: PyInstaller 打包
         run: pyinstaller --clean --noconfirm packaging/quickswitch.spec
+      - name: 嵌入内置 Deskflow
+        run: python3 packaging/bundle-deskflow.py --app dist/QuickSwitch.app
+      - name: 验证内置 Deskflow
+        run: |
+          BUNDLED="$(find dist/QuickSwitch.app/Contents -type d -name Deskflow.app -print -quit)"
+          test -n "$BUNDLED"
+          codesign --verify --deep --strict "$BUNDLED"
+          STATUS="$(dist/QuickSwitch.app/Contents/MacOS/QuickSwitch --deskflow-status)"
+          echo "$STATUS"
+          python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["installed"] and d["bundled"] and not d["tls"]' <<<"$STATUS"
+          echo "内置键鼠共享核心：$BUNDLED"
       - name: 生成 DMG
         run: |
           set +e
@@ -46,6 +77,7 @@ jobs:
   windows:
     name: Windows installer
     runs-on: windows-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -64,6 +96,9 @@ jobs:
       - name: 验证图标
         shell: bash
         run: test -s packaging/icon.ico
+      - name: 准备内置 Deskflow
+        shell: bash
+        run: python packaging/fetch-deskflow.py --target windows-x64 --if-missing
       - name: PyInstaller 打包
         shell: bash
         run: pyinstaller --clean --noconfirm packaging/quickswitch.spec
@@ -114,6 +149,12 @@ jobs:
             DIAG="$(tail -n 60 "$LOG" | tr '\r\n' '  ' | cut -c1-6000)"
             echo "::error title=NSIS 诊断日志::${DIAG:-日志为空}"
           fi
+      - name: 安装包验收（静默安装 / 启动 / 卸载）
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path dist -Filter "*Setup*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "找不到 Windows 安装包" }
+          ./scripts/test-windows-installer.ps1 -Installer $installer.FullName
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
@@ -136,26 +177,26 @@ jobs:
           find . -type f -not -name SHA256SUMS.txt -print0 \
             | sort -z \
             | xargs -0 sha256sum > SHA256SUMS.txt
+      - name: 准备 Deskflow 对应源码
+        run: |
+          VERSION="$(python3 packaging/fetch-deskflow.py --print-version)"
+          curl -fL --retry 3 -o "deskflow-${VERSION}-source.tar.gz" \
+            "https://github.com/deskflow/deskflow/archive/refs/tags/v${VERSION}.tar.gz"
       - uses: softprops/action-gh-release@v2
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch 1.0.3 修复与诊断增强版本。
+            QuickSwitch 2.0.0 大版本：Deskflow 键鼠共享已直接集成。
 
-            - Windows 原生 DDC 会优先使用配置的显示器；失败后继续尝试其它物理显示器
-            - DDC 写入前先读取当前输入源，已在目标输入时跳过不必要的写入
-            - DDC 失败日志会记录显示器序号、名称和具体 WinError，便于定位问题
-            - 新增 `--ddc-selftest`：读取当前输入源并写回同一个值，不改变画面
-            - Windows DDC 错误日志、配置向导和 `--status` 会直接给出 OSD 中开启 DDC/CI 的步骤
-            - Windows 安装包新增 UDP 8766 防火墙规则，自动发现不再被系统静默拦截
-            - 保留 Windows Per-Monitor V2 DPI 感知与字体修复
-            - Windows 内置 DXVA2，不需要安装 `ControlMyMonitor.exe`；外部工具仅为可选回退
-            - 配对码为 6 位，便于两端手动输入；旧版长密钥继续兼容
-            - 首次启动自动进入「连接 → 安全 → 显示器 → 完成」四步配置向导
-            - macOS 仅支持 Apple Silicon（arm64），不提供 Intel Mac 安装包
-            - Windows 10/11 x64 安装包
-            - 应用内原生设置窗口，不再默认打开浏览器标签页
+            - 官方 Deskflow 1.27.0 无界面核心直接内置，不再安装或打开 Deskflow 客户端
+            - Windows 自动作为服务端，macOS 自动作为客户端，并自动发现对端地址
+            - 自动生成键鼠共享配置，同步热键、端口、屏幕左右布局和剪贴板共享
+            - QuickSwitch 启动/退出时自动管理核心进程，设置页和托盘可重启或停止
+            - Windows 安装包自动放行 TCP 24800；macOS App 内置官方 `Deskflow.app`
+            - macOS 设置页提供辅助功能、输入监控和本地网络权限引导
+            - 应用内原生设置窗口，保留 DDC 切换、6 位配对码、配置向导和 Windows DPI 修复
             - 内置 Python 运行时，目标电脑不需要安装 Python 或依赖
+            - macOS 仅支持 Apple Silicon（arm64），Windows 支持 10/11 x64
 
             安装包尚未签名：macOS 首次打开请右键 App →「打开」；Windows 如遇 SmartScreen，请选择「更多信息 → 仍要运行」。
 
@@ -163,5 +204,7 @@ jobs:
           files: |
             artifacts/**/*
             INSTALL.md
+            THIRD_PARTY_NOTICES.md
+            deskflow-*-source.tar.gz
           generate_release_notes: false
           fail_on_unmatched_files: true
