@@ -138,7 +138,8 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("computerName=quickswitch-server", text)
         self.assertIn("coreMode=2", text)
         self.assertIn("externalConfig=true", text)
-        self.assertIn(f"externalConfigFile={item.server_config_path}", text)
+        external_config = str(item.server_config_path).replace("\\", "/")
+        self.assertIn(f"externalConfigFile={external_config}", text)
         self.assertIn("enableClipboard=true", text)
 
     def test_server_settings_escape_windows_path_for_ini_parser(self) -> None:
