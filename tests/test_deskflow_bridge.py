@@ -507,7 +507,7 @@ class PermissionTests(unittest.TestCase):
             self.assertIn(f"tccutil reset {service} io.quickswitch.agent", script)
         self.assertIn("Privacy_Accessibility", script)
         self.assertIn("killall -x QuickSwitch", script)
-        self.assertIn("open -a /Applications/QuickSwitch.app", script)
+        self.assertIn("open -a " + deskflow_bridge.shlex.quote(str(app)), script)
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
     def test_schedule_permission_reset_is_macos_only(self) -> None:
