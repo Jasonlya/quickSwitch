@@ -140,8 +140,11 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch 首个正式版本。
+            QuickSwitch 1.0.1 修复版本。
 
+            - Windows 内置 DXVA2 DDC 后端，不再需要安装 `ControlMyMonitor.exe`
+            - Windows 优先使用原生显示器控制，外部工具仅作为可选回退
+            - 配对码缩短为 6 位，便于在两端手动输入；旧版长密钥继续兼容
             - 首次启动自动进入「连接 → 安全 → 显示器 → 完成」四步配置向导
             - macOS 仅支持 Apple Silicon（arm64），不提供 Intel Mac 安装包
             - Windows 10/11 x64 安装包

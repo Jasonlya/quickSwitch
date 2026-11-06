@@ -42,6 +42,12 @@ class FakeDDC:
     def tool_path(self) -> str:
         return "/fake/m1ddc"
 
+    def tool_label(self) -> str:
+        return self.tool_path()
+
+    def backend_name(self) -> str:
+        return "external-tool"
+
     def tool_available(self) -> Tuple[bool, str]:
         self.tool_calls += 1
         return (self._tool_ok, "已找到 /fake/m1ddc" if self._tool_ok else "未找到 /fake/m1ddc")

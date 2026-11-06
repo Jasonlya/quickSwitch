@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import secrets
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -30,6 +31,10 @@ def log_file() -> Path:
 
 VALID_ROLES = ("server", "client")
 LABEL = {"mac": "Mac", "win": "Windows"}
+
+# 6 位交互式配对码：去掉容易混淆的 I/O/0/1，保持 32 个符号，约 30 bit 熵。
+PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+PAIRING_CODE_LENGTH = 6
 
 DEFAULTS: Dict[str, Any] = {
     "role": "server",                 # server = Windows（物理键鼠所在机）, client = macOS
@@ -105,6 +110,11 @@ def config_path(explicit: Optional[str] = None) -> Path:
 def default_config() -> Dict[str, Any]:
     """返回一份默认配置的深拷贝。"""
     return copy.deepcopy(DEFAULTS)
+
+
+def generate_pairing_code() -> str:
+    """生成适合口头/手动输入的随机配对码。"""
+    return "".join(secrets.choice(PAIRING_ALPHABET) for _ in range(PAIRING_CODE_LENGTH))
 
 
 def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -273,11 +283,11 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
     if not secret.strip():
         warnings.append(
             "auth.secret 为空：监听端口上任何能连进来的程序都能发切换请求，"
-            "建议两端配置同一个随机密钥（用 python main.py --gen-secret 生成）"
+            "建议两端配置同一个 6 位配对码（用 python main.py --gen-secret 生成）"
         )
-    elif len(secret.strip()) < 16:
+    elif len(secret.strip()) < PAIRING_CODE_LENGTH:
         warnings.append(
             f"auth.secret 只有 {len(secret.strip())} 个字符，太短；"
-            "建议用 python main.py --gen-secret 生成一个 32 字节的随机密钥"
+            "建议用 python main.py --gen-secret 生成一个 6 位随机配对码"
         )
     return warnings

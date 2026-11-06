@@ -2,7 +2,8 @@
 
 内置命令模板（VCP 0x60 = Input Source）：
 
-- Windows：``ControlMyMonitor.exe /SetValue <monitor_id> 0x60 <value>``
+- Windows：优先使用系统 DXVA2（无需外部工具）；找不到时回退到
+  ``ControlMyMonitor.exe /SetValue <monitor_id> 0x60 <value>``
 - macOS  ：``m1ddc display <index> set input <value>``
 - Linux  ：``ddcutil --display <index> setvcp 60 <value>``
 
@@ -19,6 +20,8 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from windows_ddc import WindowsNativeDDC
 
 log = logging.getLogger("ddc")
 
@@ -147,6 +150,16 @@ class DDCSwitcher:
         self._timeout_override = timeout
         self._retries_override = retries
         self._quiet = False
+        self._native: Optional[WindowsNativeDDC] = None
+        self._native_ready: Optional[bool] = None
+        if (
+            self.system == "Windows"
+            and not self.ddc_cfg.get("command_template")
+            and not self.ddc_cfg.get("read_template")
+        ):
+            self._native = WindowsNativeDDC(
+                int(self.ddc_cfg.get("display_index", 1) or 1)
+            )
 
     # ---------------------------------------------------------------- 基本属性
     @property
@@ -178,10 +191,44 @@ class DDCSwitcher:
     def win_input(self) -> int:
         return int(self.ddc_cfg.get("win_input", 17))
 
+    def _native_available(self) -> bool:
+        if self._native is None:
+            return False
+        if self._native_ready is None:
+            self._native_ready = self._native.available()
+        return bool(self._native_ready)
+
+    def backend_name(self) -> str:
+        """当前实际使用的后端名称，供状态页与日志展示。"""
+        if self._native_available():
+            return "windows-dxva2"
+        return "external-tool"
+
+    def uses_native(self) -> bool:
+        """Windows 是否正在使用内置 DXVA2 后端。"""
+        return self._native_available()
+
     def tool_path(self) -> str:
         key = TOOL_KEYS.get(self.system, "")
         configured = self.ddc_cfg.get(key) if key else None
         return str(configured or FALLBACK_TOOLS.get(self.system, ""))
+
+    def tool_label(self) -> str:
+        """给状态页展示的 DDC 后端；Windows 原生后端不需要外部文件路径。"""
+        if self._native_available():
+            return "Windows 原生 DDC（DXVA2）"
+        return self.tool_path()
+
+    def _external_tool_status(self) -> Tuple[bool, str]:
+        """检查可选的外部 DDC 工具是否存在。"""
+        tool = self.tool_path()
+        if not tool:
+            return False, f"未配置 {self.system} 的 DDC 工具路径"
+        looks_like_path = Path(tool).is_absolute() or "/" in tool or "\\" in tool
+        if looks_like_path:
+            return (True, f"已找到 {tool}") if Path(tool).exists() else (False, f"未找到 {tool}")
+        found = shutil.which(tool)
+        return (True, f"PATH 中的 {found}") if found else (False, f"PATH 中找不到 {tool}")
 
     # ---------------------------------------------------------------- 命令构建
     def placeholders(self, value: int) -> Dict[str, str]:
@@ -268,13 +315,51 @@ class DDCSwitcher:
 
     def set_input(self, value: int) -> bool:
         """把显示器输入源切换到指定的 VCP 0x60 值。"""
+        what = f"切换输入源为 {value}"
+        if self._native_available():
+            if self.dry_run:
+                log.info("[dry-run] %s：Windows 原生 DDC（DXVA2）", what)
+                return True
+            if self._native is not None and self._native.set_input(int(value)):
+                log.info("%s：Windows 原生 DDC（DXVA2）成功", what)
+                return True
+            external_ok, external_detail = self._external_tool_status()
+            if not external_ok:
+                log.error(
+                    "%s：Windows 原生 DDC（DXVA2）失败，且没有可用的外部回退工具（%s）。"
+                    "请确认显示器 OSD 已启用 DDC/CI、视频线为直连；"
+                    "如仍需外部回退，可选安装 ControlMyMonitor 并配置 ddc.controlmyMonitor_path",
+                    what,
+                    external_detail,
+                )
+                return False
+            log.warning(
+                "%s：Windows 原生 DDC 失败，尝试外部回退工具（%s）",
+                what,
+                external_detail,
+            )
+        elif self._native is not None:
+            external_ok, external_detail = self._external_tool_status()
+            if not external_ok:
+                log.error(
+                    "%s：Windows 原生 DDC（DXVA2）未检测到可用显示器，且没有外部回退工具（%s）。"
+                    "请确认显示器已连接、OSD 已启用 DDC/CI，并尽量使用视频线直连；"
+                    "如仍需外部回退，可选安装 ControlMyMonitor 并配置 ddc.controlmyMonitor_path",
+                    what,
+                    external_detail,
+                )
+                return False
+            log.info(
+                "Windows 原生 DDC 未检测到显示器，改用外部回退工具（%s）",
+                external_detail,
+            )
+
         try:
             cmd = self.build_command(value)
         except DDCError as exc:
             log.error("%s", exc)
             return False
 
-        what = f"切换输入源为 {value}"
         if self.dry_run:
             log.info("[dry-run] %s：%s", what, _pretty(cmd))
             return True
@@ -283,8 +368,24 @@ class DDCSwitcher:
 
     def get_input(self) -> Optional[int]:
         """读取当前输入源；工具不支持读取时返回 None。"""
+        if self._native_available() and self._native is not None:
+            value = self._native.get_input()
+            if value is not None:
+                return value
+            external_ok, external_detail = self._external_tool_status()
+            if not external_ok:
+                log.debug("Windows 原生 DDC 读取失败，且没有外部回退工具：%s", external_detail)
+                return None
+            log.debug("Windows 原生 DDC 读取失败，尝试外部回退工具：%s", external_detail)
+        elif self._native is not None:
+            external_ok, external_detail = self._external_tool_status()
+            if not external_ok:
+                log.debug("Windows 原生 DDC 未检测到显示器，且没有外部回退工具：%s", external_detail)
+                return None
+            log.debug("Windows 原生 DDC 未检测到显示器，尝试外部回退工具：%s", external_detail)
+
         if self.system not in GET_TEMPLATES and not self.ddc_cfg.get("read_template"):
-            log.debug("%s 上的 %s 没有内置读取命令（可配置 ddc.read_template）", self.system, self.tool_path())
+            log.debug("%s 上的 %s 没有内置读取命令（可配置 ddc.read_template）", self.system, self.tool_label())
             return None
         try:
             cmd = self.build_command(0, get=True)
@@ -392,12 +493,11 @@ class DDCSwitcher:
         raise ValueError(f"未知切换目标：{target!r}")
 
     def tool_available(self) -> Tuple[bool, str]:
-        """检查 DDC 工具是否可用，供 --status / 启动自检使用。"""
-        tool = self.tool_path()
-        if not tool:
-            return False, f"未配置 {self.system} 的 DDC 工具路径"
-        looks_like_path = Path(tool).is_absolute() or "/" in tool or "\\" in tool
-        if looks_like_path:
-            return (True, f"已找到 {tool}") if Path(tool).exists() else (False, f"未找到 {tool}")
-        found = shutil.which(tool)
-        return (True, f"PATH 中的 {found}") if found else (False, f"PATH 中找不到 {tool}")
+        """检查 DDC 后端是否可用，供 --status / 启动自检使用。"""
+        if self._native is not None:
+            native_ok, native_detail = self._native.status()
+            if native_ok:
+                self._native_ready = True
+                return True, native_detail
+            self._native_ready = False
+        return self._external_tool_status()

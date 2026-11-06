@@ -184,7 +184,7 @@
     <div class="section-head">
       <span class="folio num">07</span>
       <h2>配置</h2>
-      <p class="section-note">第一次使用只需改三处：<strong>对端地址</strong>（另一台电脑的局域网 IP，见上方「本机 IP」对照填写）、<strong>角色</strong>（Windows 选 server，macOS 选 client）、<strong>预共享密钥</strong>（两端填同一个值，在下方「安全」区块）。保存后退出并重新打开 QuickSwitch 生效；其余留默认即可。</p>
+      <p class="section-note">第一次使用只需改三处：<strong>对端地址</strong>（另一台电脑的局域网 IP，见上方「本机 IP」对照填写）、<strong>角色</strong>（Windows 选 server，macOS 选 client）、<strong>6 位配对码</strong>（两端填同一个值，在下方「安全」区块）。保存后退出并重新打开 QuickSwitch 生效；其余留默认即可。</p>
     </div>
     <div class="section-body">
       <div class="config-groups" id="configGroups"></div>
@@ -246,7 +246,7 @@
         </button>
         <button type="button" class="setup-step" data-step="1">
           <span class="setup-step-index num">02</span>
-          <span class="setup-step-copy"><span>安全</span><small>确认两端密钥</small></span>
+          <span class="setup-step-copy"><span>安全</span><small>确认配对码</small></span>
         </button>
         <button type="button" class="setup-step" data-step="2">
           <span class="setup-step-index num">03</span>
@@ -315,23 +315,23 @@
 
         <section class="setup-panel" data-panel="1" hidden>
           <p class="setup-eyebrow">安全</p>
-          <h2 id="setupTitleSecurity">让两端使用同一把密钥</h2>
-          <p class="setup-lead">密钥用于确认切换请求来自你自己的另一台电脑。两端必须填写完全相同的值。</p>
+          <h2 id="setupTitleSecurity">让两端使用同一个配对码</h2>
+          <p class="setup-lead">配对码用于确认切换请求来自你自己的另一台电脑。点「生成」得到 6 位配对码，再填到另一台电脑。</p>
 
           <div class="setup-field setup-secret-field">
-            <label for="setupSecret">预共享密钥</label>
+            <label for="setupSecret">配对码（6 位）</label>
             <div class="setup-secret-row">
-              <input type="password" id="setupSecret" autocomplete="new-password" spellcheck="false" placeholder="至少 16 个字符">
+              <input type="password" id="setupSecret" autocomplete="new-password" spellcheck="false" autocapitalize="characters" placeholder="例如 K7QM9X">
               <button type="button" class="setup-mini-button" id="setupToggleSecret">显示</button>
               <button type="button" class="setup-mini-button" id="setupCopySecret">复制</button>
               <button type="button" class="setup-mini-button" id="setupGenerateSecret">生成</button>
             </div>
-            <p id="setupSecretState" role="status">尚未设置密钥。可以生成后复制到另一台电脑。</p>
+            <p id="setupSecretState" role="status">尚未设置配对码。可以生成后复制到另一台电脑。</p>
           </div>
 
           <div class="setup-note">
             <strong>暂时跳过会降低安全性。</strong>
-            <span>密钥为空时，同一局域网内能连接 <span class="num">8765</span> 端口的程序都可以请求切换显示器。</span>
+            <span>配对码为空时，同一局域网内能连接 <span class="num">8765</span> 端口的程序都可以请求切换显示器。</span>
           </div>
         </section>
 
@@ -343,7 +343,7 @@
           <div class="setup-tool" id="setupTool">
             <span class="setup-tool-dot" id="setupToolDot" data-on="false" aria-hidden="true"></span>
             <span class="setup-tool-copy">
-              <strong id="setupToolTitle">正在检查 DDC 工具</strong>
+              <strong id="setupToolTitle">正在检查 DDC 后端</strong>
               <span id="setupToolDetail">—</span>
             </span>
           </div>
@@ -385,11 +385,11 @@
         <section class="setup-panel" data-panel="3" hidden>
           <p class="setup-eyebrow">完成</p>
           <h2 id="setupTitleDone">检查配置，然后完成</h2>
-          <p class="setup-lead">保存后，连接方式、角色和密钥需要退出 QuickSwitch 再重新打开才会生效。</p>
+          <p class="setup-lead">保存后，连接方式、角色和配对码需要退出 QuickSwitch 再重新打开才会生效。</p>
 
           <dl class="setup-review" id="setupReview"></dl>
           <div class="setup-note" id="setupSecretWarning" hidden>
-            <strong>尚未设置预共享密钥。</strong>
+            <strong>尚未设置配对码。</strong>
             <span>可以完成配置，但同一局域网内的其他程序可能向 QuickSwitch 发送切换请求。</span>
           </div>
           <div class="setup-finish-note" id="setupFinishNote">

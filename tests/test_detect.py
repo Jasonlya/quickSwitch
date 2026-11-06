@@ -82,6 +82,7 @@ class ProbeTests(unittest.TestCase):
     def test_probe_finds_supported_values_and_restores_input(self) -> None:
         monitor = FakeMonitor(supported=[15, 17], initial=17)
         switcher = DDCSwitcher(make_cfg(), system="Windows", runner=monitor)
+        switcher._native = None  # 模拟原生后端不可用，验证外部 DDC 命令路径
         seen: List[Tuple[int, Optional[int]]] = []
         available = switcher.probe_inputs([1, 15, 17, 27], progress=lambda v, r: seen.append((v, r)))
         self.assertEqual(available, [15, 17])

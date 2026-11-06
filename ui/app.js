@@ -129,8 +129,9 @@ function renderSetupTool(status) {
   const ddc = (status && status.ddc) || {};
   const available = Boolean(ddc.tool_ok);
   $("setupToolDot").dataset.on = available ? "true" : "error";
-  $("setupToolTitle").textContent = available ? "DDC 工具可用" : "DDC 工具不可用";
-  $("setupToolDetail").textContent = text(ddc.tool_detail) + (ddc.tool_path ? " ｜ " + ddc.tool_path : "");
+  $("setupToolTitle").textContent = available ? "DDC 后端可用" : "DDC 后端不可用";
+  const toolSuffix = ddc.tool_path && ddc.tool_path !== ddc.tool_detail ? " ｜ " + ddc.tool_path : "";
+  $("setupToolDetail").textContent = text(ddc.tool_detail) + toolSuffix;
 }
 
 function renderSetupCurrent(value, meta) {
@@ -219,7 +220,7 @@ function renderSetupReview() {
   rows($("setupReview"), [
     ["本机角色", setupRoleText(setupRoleFor(lastStatus))],
     ["连接方式", peer],
-    ["预共享密钥", secret ? "已设置（" + secret.length + " 个字符）" : "未设置"],
+    ["配对码", secret ? "已设置（" + secret.length + " 个字符）" : "未设置"],
     ["Mac 输入源", macValue || DASH],
     ["Windows 输入源", winValue || DASH],
     ["DDC 工具", lastStatus && lastStatus.ddc && lastStatus.ddc.tool_ok ? "可用" : "不可用"],
@@ -330,27 +331,27 @@ function updateSecretState() {
   const value = $("setupSecret").value.trim();
   const state = $("setupSecretState");
   if (!value) {
-    state.textContent = "尚未设置密钥。可以生成后复制到另一台电脑。";
+    state.textContent = "尚未设置配对码。可以生成后复制到另一台电脑。";
     state.dataset.tone = "error";
-  } else if (value.length < 16) {
-    state.textContent = "当前只有 " + value.length + " 个字符；建议至少 16 个，或直接点「生成」。";
+  } else if (value.length < 6) {
+    state.textContent = "当前只有 " + value.length + " 个字符；建议使用 6 位配对码，或直接点「生成」。";
     state.dataset.tone = "error";
   } else {
-    state.textContent = "已填写 " + value.length + " 个字符。请把同一个值填到另一台电脑。";
+    state.textContent = "已填写 " + value.length + " 个字符。请把同一个配对码填到另一台电脑。";
     state.dataset.tone = "ok";
   }
 }
 
 function generateSetupSecret() {
   if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
-    notify("当前窗口无法安全生成随机密钥，请使用命令行 --gen-secret。", "error");
+    notify("当前窗口无法安全生成随机配对码，请使用命令行 --gen-secret。", "error");
     return;
   }
-  const bytes = new Uint8Array(32);
+  // 与 config.PAIRING_ALPHABET 保持一致：去掉了 I/O/0/1，32 个符号无取模偏差。
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(6);
   window.crypto.getRandomValues(bytes);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  const secret = window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const secret = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
   $("setupSecret").value = secret;
   $("setupSecret").type = "text";
   $("setupToggleSecret").textContent = "隐藏";
@@ -385,11 +386,11 @@ async function copyText(value) {
 async function copySetupSecret() {
   const value = $("setupSecret").value.trim();
   if (!value) {
-    notify("密钥为空，请先生成。", "error");
+    notify("配对码为空，请先生成。", "error");
     return;
   }
   const copied = await copyText(value);
-  notify(copied ? "密钥已复制，请粘贴到另一台电脑的同一位置。" : "复制失败，请手动选中密钥复制。", copied ? "info" : "error");
+  notify(copied ? "配对码已复制，请粘贴到另一台电脑的同一位置。" : "复制失败，请手动选中配对码复制。", copied ? "info" : "error");
 }
 
 async function readSetupInput() {
@@ -628,7 +629,7 @@ function switchSummary(status, target) {
   const parts = [owner ? "当前：" + LABEL[owner] : "当前输入源未知"];
   if (status.peer) parts.push(status.peer.connected ? "对端已连接" : "对端未连接");
   if (status.auth) {
-    if (!status.auth.enabled) parts.push("未设置预共享密钥");
+    if (!status.auth.enabled) parts.push("未设置配对码");
     else if (!status.auth.authenticated) parts.push("密钥校验未通过");
   }
   if (status.ddc && !status.ddc.tool_ok) parts.push("DDC 工具不可用");
@@ -709,9 +710,9 @@ function renderStatus(status) {
 
   const ddc = status.ddc;
   rows($("kvDdc"), [
-    ["工具", text(ddc.tool_path)],
-    ["工具可用", flag(ddc.tool_ok ? "可用" : "不可用", ddc.tool_ok)],
-    ["工具说明", text(ddc.tool_detail)],
+    ["后端", text(ddc.tool_path)],
+    ["后端可用", flag(ddc.tool_ok ? "可用" : "不可用", ddc.tool_ok)],
+    ["后端说明", text(ddc.tool_detail)],
     ["显示器 id", text(ddc.monitor_id)],
     ["display_index", text(ddc.display_index)],
     ["Mac 输入源", text(ddc.mac_input)],
@@ -724,6 +725,7 @@ function renderStatus(status) {
 
   const commands = $("cmds");
   commands.textContent = "";
+  const nativeDdc = ddc.backend === "windows-dxva2";
   const commandRows = [
     ["切换到 Mac", ddc.cmd_mac],
     ["切换到 Windows", ddc.cmd_win],
@@ -734,7 +736,9 @@ function renderStatus(status) {
     const dt = document.createElement("dt");
     dt.textContent = label;
     const dd = document.createElement("dd");
-    if (Array.isArray(value) && value.length) {
+    if (nativeDdc) {
+      dd.textContent = "Windows 原生 DXVA2（无需外部命令）";
+    } else if (Array.isArray(value) && value.length) {
       dd.textContent = value.join(" ");
     } else {
       dd.textContent = "该平台无内置命令，可用 ddc.command_template / ddc.read_template 指定";

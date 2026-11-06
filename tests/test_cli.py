@@ -70,7 +70,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("QuickSwitch", result.stdout)
         self.assertIn("role         : server", result.stdout)
-        self.assertIn("DDC 工具", result.stdout)
+        self.assertIn("DDC 后端", result.stdout)
         self.assertIn("当前输入源", result.stdout)
 
     def test_init_config_writes_file(self) -> None:

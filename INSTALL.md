@@ -12,7 +12,7 @@
 | 步骤 | Windows（server） | macOS（client） |
 | --- | --- | --- |
 | 1 | 装 Deskflow，设成 **Server** | 装 Deskflow，设成 **Client** |
-| 2 | 装 ControlMyMonitor | 装 m1ddc（Apple Silicon）或 ddcutil |
+| 2 | 无需额外 DDC 工具（内置 DXVA2） | 装 m1ddc（Apple Silicon） |
 | 3 | 运行 QuickSwitch | 运行 QuickSwitch |
 | 4 | 填对方 IP、同一端口、同一个 `auth.secret` | 同左 |
 | 5 | `--status` 看到「已连接」＋「密钥校验：已通过」 | 同左 |
@@ -35,8 +35,8 @@
 | --- | --- | --- |
 | QuickSwitch | 切显示器输入源 + 通知对端 | **必须**，本文档安装的就是它 |
 | Deskflow | 一套键鼠控制两台机器、剪贴板文本共享 | 必须（除非你只想切显示器） |
-| ControlMyMonitor | Windows 侧 DDC/CI 工具 | 必须（Windows 端） |
-| m1ddc / ddcutil | macOS 侧 DDC/CI 工具 | 必须（macOS 端二选一） |
+| ControlMyMonitor | Windows 侧可选的外部 DDC 回退 | 可选；Windows 端默认使用系统内置 DXVA2 |
+| m1ddc | macOS 侧 DDC/CI 工具 | 必须（macOS 端） |
 | LocalSend / Tailscale | 传文件 / 固定虚拟 IP | 可选 |
 
 ---
@@ -129,25 +129,26 @@ python main.py --init-config
 | 步骤 | 要做什么 | 说明 |
 | --- | --- | --- |
 | 连接 | 选「自动发现」，或填另一台电脑的 IP | 自动发现使用 UDP 8766；手动模式把另一台电脑的「本机 IP」填进来。TCP 监听端口保持 `8765` |
-| 安全 | 生成密钥，并复制到另一台电脑 | 两端 `auth.secret` 必须完全相同；建议 16 位以上 |
+| 安全 | 生成 6 位配对码，并填到另一台电脑 | 两端配对码必须完全相同；点「生成」即可 |
 | 显示器 | 读取当前输入源并标记 Mac / Windows | 不同品牌取值可能不同；也可以直接填写或点「探测」 |
 | 完成 | 保存后退出并重新打开 QuickSwitch | 角色会按系统自动选择：macOS = `client`，Windows = `server`，只有 Windows 端注册全局热键 |
 
 向导左侧会显示本机局域网 IP；把它填到**另一台电脑**的连接步骤里。
-完成后要退出并重新打开 QuickSwitch，连接方式、角色和密钥才会生效。
+完成后要退出并重新打开 QuickSwitch，连接方式、角色和配对码才会生效。
 
 ### 3.3 高级配置与重新运行向导
 
 以后要修改配置：展开「更多信息与设置」→「配置」，点「重新运行配置向导」；或直接编辑白名单字段。
 
-Windows 端 DDC 工具路径：
+Windows 端默认使用系统内置 DXVA2，不需要配置外部程序。以下字段仅用于诊断或可选回退：
 
 | 字段 | 说明 |
 | --- | --- |
-| `ddc.controlmyMonitor_path` | 默认 `C:\Tools\ControlMyMonitor.exe`，按实际位置改 |
-| `ddc.monitor_id` | 默认 `\\.\DISPLAY1\Monitor0`，多屏时按实际监视器改 |
+| `ddc.display_index` | 选择第几个物理显示器（从 1 开始）；单屏保持 `1` |
+| `ddc.controlmyMonitor_path` | 可选回退工具路径；只有原生 DXVA2 失败且你确实安装了 ControlMyMonitor 时才需要填 |
+| `ddc.monitor_id` | 仅供外部 ControlMyMonitor 回退使用，原生 DXVA2 不依赖它 |
 
-macOS 端确认 `ddc.m1ddc_path`（默认 `/opt/homebrew/bin/m1ddc`）。
+macOS 端确认 `ddc.m1ddc_path`（默认 `/opt/homebrew/bin/m1ddc`）。如果使用 Homebrew 安装，路径通常是 `/opt/homebrew/bin/m1ddc`。
 
 ### 3.4 识别显示器输入源
 
@@ -161,34 +162,41 @@ python3 main.py --detect-inputs --no-write                     # 只看结果，
 
 成品包同样可以带参数运行（路径见 3.1）。设置窗口里也有「探测输入源」按钮，效果相同。
 
-### 3.5 配预共享密钥（必须）
+### 3.5 配 6 位配对码（必须）
 
-`auth.secret` 为空时，同网段任何程序只要往 8765 发一行 JSON 就能切走你的显示器。推荐直接在设置页的「安全」区块填写，也可以生成后复制到两端：
+`auth.secret` 为空时，同网段任何程序只要往 8765 发一行 JSON 就能切走你的显示器。推荐直接在设置页的「安全」区块点「生成」，得到 6 位无歧义配对码，再填到另一台电脑。也可以命令行生成：
 
 ```bash
 python3 main.py --gen-secret
-# {"auth": {"secret": "ReKQONRgzal_BnZAnRya3bx_FpCbLXQaLe1dDGSB5zk"}}
+# {"auth": {"secret": "K7QM9X"}}
 ```
 
-把同一个值填进**两端**的「安全 → auth.secret」，保存后重启两端。
+把同一个 6 位配对码填进**两端**的「安全」区块（配置文件里对应 `auth.secret`），保存后重启两端。6 位码便于家用局域网配对；如果在访客网络或公共 WiFi 使用，建议手动改成更长的随机值。旧版生成的长密钥仍然兼容，不需要修改。
 
 ### 3.6 自检：什么才算配好了
 
 两端各跑一次 `--status`，重点是这三行：
 
 ```
-对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.0）
+对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.1）
 密钥校验     : 已通过（hmac-sha256）
-DDC 工具     : 已找到 /opt/homebrew/bin/m1ddc
+DDC 后端     : 已找到 /opt/homebrew/bin/m1ddc
+```
+
+Windows 端正常时应显示：
+
+```
+DDC 后端     : Windows 原生 DDC（DXVA2）已检测到 1 个显示器：...
+读取方式     : Windows 原生 DXVA2（无需外部命令）
 ```
 
 | 输出 | 含义 |
 | --- | --- |
 | 对端「连接失败」 | 对端没运行、IP / 端口错、或防火墙挡了 |
-| 密钥校验「未配置」 | 本端没填 `auth.secret`，切换请求不会校验 |
-| 密钥校验「未通过」 | 两端 `auth.secret` 不一致 |
-| DDC「未找到」 | 工具路径不对或没装 |
-| 当前输入源「无法读取」 | 显示器不支持读 VCP 0x60，或工具不支持读；不影响切换 |
+| 密钥校验「未配置」 | 本端没填配对码，切换请求不会校验 |
+| 密钥校验「未通过」 | 两端配对码不一致 |
+| DDC「未找到」 | 仅 macOS 需要 m1ddc；Windows 出现此提示说明当前是旧版安装包，或原生 DXVA2 未检测到显示器 |
+| 当前输入源「无法读取」 | 显示器未开启/不支持读 VCP 0x60，或当前 DDC 后端不可用；不影响发送切换 |
 
 ---
 
@@ -285,10 +293,11 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch"
 | Windows 首次运行弹 SmartScreen | 未签名。更多信息 → 仍要运行；正式分发需代码签名 |
 | 网页打不开 | 端口 8767 被占，或被 `--no-web` 关了；去日志里看实际地址与令牌 |
 | 首次启动设置窗口晚出现约 30 秒 | macOS 首次本地网络权限 / 解析，点「允许」后即可；之后启动 1~2 秒就绪 |
-| 点切换没反应 | DDC 工具路径错、显示器没开 DDC/CI、取值不对。先跑 `--status` 看 DDC 那一行 |
+| 点切换没反应 | 确认显示器 OSD 已开启 DDC/CI、视频线为直连；Windows 先看 `--status` 的 DDC 后端是否为 DXVA2，macOS 检查 `ddc.m1ddc_path`；再确认输入源取值 |
+| Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包会尝试该外部回退。最新版 Windows 使用内置 DXVA2，不需要该文件；ControlMyMonitor 仅是可选的补充回退 |
 | 显示器切了但键鼠没过去 | Deskflow 的问题：检查两端 Deskflow 连接与热键 |
 | 对端未连接 | IP / 端口、防火墙、对端没运行。`--status` 会写明「连接失败」 |
-| 密钥校验未通过 | 两端 `auth.secret` 不一致，改成同一个值后重启 |
+| 密钥校验未通过 | 两端配对码不一致，改成同一个 6 位配对码后重启 |
 | 想停掉程序 | 托盘菜单「退出」。托盘运行时 `SIGTERM` 不生效，脚本里停进程用 `kill -9` |
 | 启动退出码 3 | 监听端口被占用，通常已经有实例在跑 |
 
@@ -296,7 +305,7 @@ Remove-NetFirewallRule -DisplayName "QuickSwitch"
 
 ## 8. 一分钟验收
 
-1. 两端 `--status`：对端「已连接」、密钥校验「已通过」、DDC 工具「可用」。
+1. 两端 `--status`：对端「已连接」、密钥校验「已通过」、DDC 后端「可用」。
 2. 按一次 `Ctrl+Alt+1`：显示器切到 Mac，Mac 上键鼠可用，托盘显示当前为 Mac。
 3. 按一次 `Ctrl+Alt+2`：切回 Windows。
 4. 关掉 Mac 上的 QuickSwitch，再按 `Ctrl+Alt+1`：Windows 本机仍切换成功，日志提示「对端未确认」——这是预期的冗余设计。

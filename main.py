@@ -3,9 +3,9 @@
 常用命令：
 
     python main.py                  # 常驻运行（托盘图标 + 全局热键）
-    python main.py --status         # 打印配置、DDC 工具、当前输入源、对端连通性
+    python main.py --status         # 打印配置、DDC 后端、当前输入源、对端连通性
     python main.py --once mac       # 执行一次切换后退出（验证 DDC 与通知链路）
-    python main.py --dry-run        # 只打印将要执行的 DDC 命令，不做真实切换
+    python main.py --dry-run        # 只打印将要执行的 DDC 操作，不做真实切换
     python main.py --no-tray        # 无托盘后台运行（适合任务计划/launchd 调试）
 """
 from __future__ import annotations
@@ -35,6 +35,7 @@ from config import (
     ConfigError,
     LABEL,
     config_path,
+    generate_pairing_code,
     load_config,
     log_file,
     save_config,
@@ -48,7 +49,7 @@ from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 TARGETS = ("mac", "win")
 
 
@@ -565,7 +566,7 @@ class QuickSwitchApp:
         if self.web_enabled:
             self._start_web()
         tool_ok, tool_detail = self.quick.ddc.tool_available()
-        log.info("DDC 工具：%s", tool_detail if tool_ok else f"不可用 — {tool_detail}")
+        log.info("DDC 后端：%s", tool_detail if tool_ok else f"不可用 — {tool_detail}")
         log.info("已启动：%s", self.quick.status_line())
 
         if not self.use_tray:
@@ -861,12 +862,13 @@ async def probe_peer(cfg: Dict[str, Any], target: Optional[Tuple[str, int]]) -> 
 async def cmd_status(cfg: Dict[str, Any], path: Path) -> int:
     ddc = DDCSwitcher(cfg, timeout=3.0, retries=0)
     tool_ok, tool_detail = ddc.tool_available()
+    native_ddc = ddc.uses_native()
 
     value = ddc.get_input() if tool_ok else None
     if value is None:
         current = (
-            "无法读取（显示器不支持读 VCP 0x60、工具不可用或未安装；"
-            "可用 ddc.read_template / ddc.read_regex 指定读取方式）"
+            "无法读取（显示器未响应 DDC/CI、未开启读取 VCP 0x60，"
+            "或当前后端不可用；可用 ddc.read_template / ddc.read_regex 指定读取方式）"
         )
     else:
         if value == ddc.mac_input:
@@ -906,8 +908,20 @@ async def cmd_status(cfg: Dict[str, Any], path: Path) -> int:
     print(f"  监听端口     : 0.0.0.0:{cfg.get('listen_port')}")
     print(f"  对端         : {peer_line}")
     print(f"  密钥校验     : {auth_line}")
-    print(f"  DDC 工具     : {tool_detail}" + ("" if tool_ok else "  ← 请检查配置 ddc 路径"))
-    if tool_ok:
+    print(f"  DDC 后端     : {tool_detail}")
+    if not tool_ok and ddc.system == "Windows":
+        print(
+            "  后端提示     : Windows 内置 DXVA2 不可用；请确认显示器 OSD 已开启 DDC/CI、"
+            "视频线为直连。ControlMyMonitor 仅为可选回退，不是必需依赖"
+        )
+    elif value is None and native_ddc:
+        print(
+            "  读取提示     : 已检测到显示器，但 VCP 0x60 读取失败；"
+            "请确认显示器 OSD 已开启 DDC/CI，并尽量使用视频线直连"
+        )
+    if tool_ok and native_ddc:
+        print("  读取方式     : Windows 原生 DXVA2（无需外部命令）")
+    elif tool_ok:
         with contextlib.suppress(Exception):
             read_cmd = ddc.build_command(0, get=True)
             if read_cmd:
@@ -1052,7 +1066,7 @@ def cmd_detect_inputs(
     流程：读取当前值 → 逐一试探候选取值（set 后回读确认）→ 交互确认哪个值对应哪台机器
     → 回读校验 → 写入 config.json，并打印需要同步到另一端的片段。
 
-    需要「既能写也能读」的 DDC 工具；只能写不能读时，请直接用
+    需要「既能写也能读」的 DDC 后端；只能写不能读时，请直接用
     ``--mac-input`` / ``--win-input`` 指定取值。
     """
     switcher = ddc or DDCSwitcher(cfg, dry_run=dry_run)
@@ -1064,19 +1078,25 @@ def cmd_detect_inputs(
 
     print("QuickSwitch 输入源识别向导")
     tool_ok, tool_detail = switcher.tool_available()
-    print(f"  DDC 工具   : {tool_detail}")
+    print(f"  DDC 后端   : {tool_detail}")
     if not tool_ok:
         if mac_input is None or win_input is None:
-            print("  DDC 工具不可用，无法切换/回读；请先按 README §8.1 手动确认取值，")
+            print("  DDC 后端不可用，无法切换/回读；请先确认显示器 DDC/CI 已开启，")
+            if switcher.system == "Windows":
+                print("  Windows 内置 DXVA2 未检测到可用显示器；ControlMyMonitor 只是可选回退。")
             print("  再用 --mac-input / --win-input 指定（可只写配置，稍后再校准）。")
             return 1
-        print("  警告：DDC 工具不可用，本次只写配置，跳过探测与回读校验。")
+        print("  警告：DDC 后端不可用，本次只写配置，跳过探测与回读校验。")
         probe = False
 
     current = switcher.get_input()
     if current is None:
         print("  当前输入源 : 读取失败")
-        print("    可用读取方式：ControlMyMonitor /GetValue、m1ddc get input、ddcutil getvcp 60；")
+        if switcher.system == "Windows":
+            print("    Windows 默认使用内置 DXVA2；确认显示器 OSD 已开启 DDC/CI、视频线为直连。")
+            print("    可选回退：安装 ControlMyMonitor，并填写 ddc.controlmyMonitor_path。")
+        else:
+            print("    可用读取方式：m1ddc get input、ddcutil getvcp 60；")
         print("    其他工具可配置 ddc.read_template（+ ddc.read_regex）指定读取命令。")
     else:
         print(f"  当前输入源 : {current}")
@@ -1161,7 +1181,7 @@ def cmd_detect_inputs(
             read_back = switcher.get_input()
             if not sent:
                 mismatch = True
-                print(f"  {label:<8}: 切换命令执行失败，请检查 DDC 工具、线材与显示器 DDC 开关")
+                print(f"  {label:<8}: 切换失败，请检查 DDC 后端、线材与显示器 DDC/CI 开关")
             elif read_back is None:
                 print(f"  {label:<8}: 已发送切换（{value}），本环境无法回读确认")
             elif read_back == value:
@@ -1170,7 +1190,7 @@ def cmd_detect_inputs(
                 mismatch = True
                 print(f"  {label:<8}: 回读 {read_back} ≠ {value}，该取值可能不正确")
     else:
-        print("\n跳过回读校验（DDC 工具不可用）")
+        print("\n跳过回读校验（DDC 后端不可用）")
 
     if current is not None and current not in (labels["mac"], labels["win"]):
         switcher.set_input(current)
@@ -1209,11 +1229,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--role", choices=("server", "client"), help="覆盖配置中的 role")
     parser.add_argument("--once", choices=TARGETS, metavar="{mac,win}",
                         help="执行一次切换后退出（验证 DDC 与对端通知）")
-    parser.add_argument("--status", action="store_true", help="打印配置、DDC 工具与对端连通性后退出")
+    parser.add_argument("--status", action="store_true", help="打印配置、DDC 后端与对端连通性后退出")
     parser.add_argument("--print-config", action="store_true", help="打印合并默认值后的生效配置")
     parser.add_argument("--init-config", action="store_true", help="生成默认配置文件后退出")
     parser.add_argument("--gen-secret", action="store_true",
-                        help="生成一个预共享密钥（写进两端配置的 auth.secret）后退出")
+                        help="生成一个 6 位配对码（写进两端配置的 auth.secret）后退出")
     parser.add_argument("--detect-inputs", action="store_true",
                         help="识别显示器输入源取值（Windows/macOS/Linux）并写回配置")
     parser.add_argument("--mac-input", type=int, help="配合 --detect-inputs：直接指定 Mac 的输入源值")
@@ -1223,7 +1243,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-write", action="store_true", help="配合 --detect-inputs：只打印结果，不写配置")
     parser.add_argument("--non-interactive", action="store_true",
                         help="配合 --detect-inputs：不提问，只用命令行给出的取值")
-    parser.add_argument("--dry-run", action="store_true", help="只打印将执行的 DDC 命令，不做真实切换")
+    parser.add_argument("--dry-run", action="store_true", help="只打印将执行的 DDC 操作，不做真实切换")
     parser.add_argument("--no-tray", action="store_true", help="不显示托盘图标（后台运行）")
     parser.add_argument("--no-web", action="store_true", help="不启动本地 Web 控制台（默认 http://127.0.0.1:8767/）")
     parser.add_argument("--web-port", type=int, help="Web 控制台端口（默认取配置 web.port，8767）")
@@ -1239,9 +1259,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.settings_window:
         return run_settings_window(args.settings_window)
     if args.gen_secret:
-        print(json.dumps({"auth": {"secret": secrets.token_urlsafe(32)}}, ensure_ascii=False))
+        print(json.dumps({"auth": {"secret": generate_pairing_code()}}, ensure_ascii=False))
         print(
-            "把上面这一行合并进两端 ~/.quickswitch/config.json，再重启两端进程；"
+            "把上面这一行合并进两端 ~/.quickswitch/config.json（或直接复制配对码），再重启两端进程；"
             "之后用 python main.py --status 确认「密钥校验：已通过」。",
             file=sys.stderr,
         )

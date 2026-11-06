@@ -27,15 +27,17 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 | 需要准备 | 作用 | 在哪里获取 |
 | --- | --- | --- |
 | Deskflow | 让一套键鼠控制两台电脑 | [deskflow.org](https://deskflow.org/) |
-| DDC/CI 工具 | 让程序切换显示器输入源 | Windows：[ControlMyMonitor](https://www.nirsoft.net/utils/control_my_monitor.html)；macOS：[m1ddc](https://github.com/waydabber/m1ddc) |
+| 显示器 DDC/CI | 允许电脑切换显示器的输入源 | 在显示器 OSD 菜单中开启 DDC/CI；多数型号默认开启 |
 
 键鼠接在 Windows 上时：Windows 的 Deskflow 选 **Server**，Mac 的 Deskflow 选 **Client**。
+
+Windows 端已内置原生 DDC（DXVA2），**不需要安装 ControlMyMonitor**。macOS 端需要 Apple Silicon，并安装 [m1ddc](https://github.com/waydabber/m1ddc)；如果 Mac 端提示找不到 DDC 工具，按安装文档确认 `ddc.m1ddc_path`。
 
 ## 首次配置
 
 1. 两台电脑都安装并启动 QuickSwitch。首次启动会自动弹出**配置向导**。
 2. **连接**：推荐选「自动发现」；需要手动填 IP 时，把另一台电脑向导左侧显示的「本机 IP」填进来。
-3. **安全**：点「生成」，复制同一个密钥到另一台电脑。两端密钥必须完全一致。
+3. **安全**：点「生成」得到 6 位配对码，复制或手动输入到另一台电脑。两端配对码必须完全一致。
 4. **显示器**：点「读取」确认当前输入源，再标记为 Mac 或 Windows；也可以直接填写已知数值，或点「探测」让程序试探。
 5. **完成**：检查摘要后点「完成配置」。关闭设置窗口，从菜单栏/托盘菜单退出 QuickSwitch，再重新打开，让连接配置生效。
 
@@ -57,7 +59,8 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 | macOS 提示「无法验证开发者」 | 右键 App →「打开」→「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」 |
 | Windows 提示 SmartScreen | 点「更多信息」→「仍要运行」 |
 | 对端一直显示未连接 | 确认两台电脑在同一局域网、端口都是 `8765`、防火墙已放行；macOS 允许 QuickSwitch 访问本地网络 |
-| 点切换没有反应 | 检查 DDC 工具路径、显示器是否开启 DDC/CI，再用设置页的「探测输入源」确认取值 |
+| 点切换没有反应 | Windows 端确认显示器 OSD 已开启 DDC/CI、视频线为直连；Mac 端确认 `ddc.m1ddc_path` 正确。再用设置页的「探测输入源」确认取值 |
+| Windows 提示找不到 `ControlMyMonitor.exe` | 旧版安装包的回退路径。最新版使用 Windows 内置 DXVA2，不需要该文件；升级后重试，ControlMyMonitor 仅作为可选回退 |
 | 显示器切了但键鼠没过去 | 这是 Deskflow 的连接或热键配置问题，不是 QuickSwitch 负责的范围 |
 | 想查看日志 | macOS：`~/.quickswitch/quickswitch.log`；Windows：`%USERPROFILE%\.quickswitch\quickswitch.log` |
 | 想卸载 | macOS 删除「应用程序」里的 QuickSwitch；Windows 用「设置 → 应用 → QuickSwitch → 卸载」。用户配置默认保留 |
@@ -73,8 +76,8 @@ QuickSwitch 负责切换显示器输入源，不会替代下面两项：
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

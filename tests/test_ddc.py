@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from ddc import DDCSwitcher, DDCError, parse_control_my_monitor, parse_ddcutil
@@ -42,6 +45,30 @@ class FakeRunner:
         if isinstance(result, Exception):
             raise result
         return result
+
+
+class FakeNativeDDC:
+    def __init__(self, value: int = 18, *, works: bool = True, detected: bool = True) -> None:
+        self.value = value
+        self.works = works
+        self.detected = detected
+        self.set_calls: List[int] = []
+
+    def available(self):
+        return self.detected
+
+    def status(self):
+        return True, "Windows 原生 DDC（DXVA2）"
+
+    def get_input(self):
+        return self.value if self.works else None
+
+    def set_input(self, value: int) -> bool:
+        self.set_calls.append(value)
+        if not self.works:
+            return False
+        self.value = value
+        return True
 
 
 class CommandBuildTests(unittest.TestCase):
@@ -98,6 +125,65 @@ class CommandBuildTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_windows_prefers_native_dxva2_backend(self) -> None:
+        runner = FakeRunner([])
+        switcher = DDCSwitcher(make_cfg(), system="Windows", runner=runner)
+        native = FakeNativeDDC()
+        switcher._native = native
+        switcher._native_ready = True
+
+        self.assertEqual(switcher.get_input(), 18)
+        self.assertTrue(switcher.set_input(15))
+        self.assertEqual(native.set_calls, [15])
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(switcher.backend_name(), "windows-dxva2")
+        self.assertEqual(switcher.tool_path(), r"C:\Tools\ControlMyMonitor.exe")
+        self.assertIn("原生", switcher.tool_label())
+
+    def test_windows_native_status_reports_available_without_external_tool(self) -> None:
+        switcher = DDCSwitcher(make_cfg(), system="Windows")
+        switcher._native = FakeNativeDDC()
+        ok, detail = switcher.tool_available()
+        self.assertTrue(ok)
+        self.assertIn("DXVA2", detail)
+
+    def test_windows_native_failure_without_fallback_does_not_run_missing_tool(self) -> None:
+        missing = str(Path(tempfile.gettempdir()) / "quickswitch-missing-controlmymonitor.exe")
+        runner = FakeRunner([])
+        switcher = DDCSwitcher(
+            make_cfg(controlmyMonitor_path=missing), system="Windows", runner=runner
+        )
+        switcher._native = FakeNativeDDC(works=False)
+        switcher._native_ready = True
+
+        self.assertIsNone(switcher.get_input())
+        self.assertFalse(switcher.set_input(15))
+        self.assertEqual(runner.calls, [])
+
+    def test_windows_native_unavailable_without_fallback_does_not_run_missing_tool(self) -> None:
+        missing = str(Path(tempfile.gettempdir()) / "quickswitch-missing-controlmymonitor.exe")
+        runner = FakeRunner([])
+        switcher = DDCSwitcher(
+            make_cfg(controlmyMonitor_path=missing), system="Windows", runner=runner
+        )
+        switcher._native = FakeNativeDDC(detected=False)
+        switcher._native_ready = False
+
+        self.assertIsNone(switcher.get_input())
+        self.assertFalse(switcher.set_input(15))
+        self.assertEqual(runner.calls, [])
+
+    def test_windows_native_failure_uses_configured_fallback_tool(self) -> None:
+        runner = FakeRunner([(0, "", "")])
+        switcher = DDCSwitcher(
+            make_cfg(controlmyMonitor_path=sys.executable), system="Windows", runner=runner
+        )
+        switcher._native = FakeNativeDDC(works=False)
+        switcher._native_ready = True
+
+        self.assertTrue(switcher.set_input(15))
+        self.assertEqual(runner.calls[0][0][0], sys.executable)
+
     def test_switch_to_mac_runs_expected_command(self) -> None:
         runner = FakeRunner([(0, "", "")])
         switcher = DDCSwitcher(make_cfg(), system="Darwin", runner=runner)
@@ -107,6 +193,7 @@ class ExecutionTests(unittest.TestCase):
     def test_switch_to_win_runs_expected_value(self) -> None:
         runner = FakeRunner([(0, "", "")])
         switcher = DDCSwitcher(make_cfg(), system="Windows", runner=runner)
+        switcher._native = None  # 本用例验证外部命令模板，模拟原生后端不可用
         self.assertTrue(switcher.switch_to_win())
         self.assertEqual(runner.calls[0][0][-1], "17")
 
@@ -181,6 +268,7 @@ class InputReadTests(unittest.TestCase):
     def test_get_input_windows(self) -> None:
         runner = FakeRunner([(0, self.CONTROL_MY_MONITOR_OUTPUT, ""), (0, self.CONTROL_MY_MONITOR_OUTPUT, "")])
         switcher = DDCSwitcher(make_cfg(), system="Windows", runner=runner)
+        switcher._native = None  # 模拟原生后端不可用，走 ControlMyMonitor 回退
         self.assertEqual(switcher.get_input(), 17)
         self.assertEqual(switcher.current_target(), "win")
 
@@ -247,6 +335,7 @@ class InputReadTests(unittest.TestCase):
     def test_get_input_failure_returns_none(self) -> None:
         runner = FakeRunner([(1, "", "no display")])
         switcher = DDCSwitcher(make_cfg(), system="Windows", runner=runner)
+        switcher._native = None
         self.assertIsNone(switcher.get_input())
 
     def test_parse_helpers(self) -> None:

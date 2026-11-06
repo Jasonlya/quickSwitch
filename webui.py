@@ -293,15 +293,19 @@ class WebConsole:
         cfg = app.cfg
         ddc = quick.ddc
         tool_ok, tool_detail = ddc.tool_available()
+        native_ddc = ddc.backend_name() == "windows-dxva2"
 
         def command(target: str) -> Optional[List[str]]:
+            if native_ddc:
+                return None
             with contextlib.suppress(Exception):
                 return ddc.build_command(ddc.mac_input if target == "mac" else ddc.win_input)
             return None
 
         read_command: Optional[List[str]] = None
-        with contextlib.suppress(Exception):
-            read_command = ddc.build_command(0, get=True) or None
+        if not native_ddc:
+            with contextlib.suppress(Exception):
+                read_command = ddc.build_command(0, get=True) or None
 
         cached = app.read_cache()
         return {
@@ -338,9 +342,10 @@ class WebConsole:
                 "peers": app.discovery.peers() if app.discovery is not None else {},
             },
             "ddc": {
-                "tool_path": ddc.tool_path(),
+                "tool_path": ddc.tool_label(),
                 "tool_ok": tool_ok,
                 "tool_detail": tool_detail,
+                "backend": ddc.backend_name(),
                 "read_command": read_command,
                 "cmd_mac": command("mac"),
                 "cmd_win": command("win"),

@@ -17,7 +17,7 @@ macOS 主机通过 WiFi 接入同一局域网；两台主机共用一台显示�
 | 组件 | 作用 | 运行位置 | 是否包含本仓库 |
 | --- | --- | --- | --- |
 | Deskflow | 一套键鼠控制两台电脑（软件 KVM、剪贴板文本共享） | 两端 | 否，需自行安装 |
-| ControlMyMonitor / m1ddc / ddcutil | DDC/CI 切换显示器输入源 | 两端 | 否，需自行安装 |
+| Windows DXVA2 / m1ddc / ddcutil | DDC/CI 切换显示器输入源 | Windows 使用系统内置；macOS 需 m1ddc；Linux 可选 ddcutil | Windows 无需安装；macOS 需自行安装 |
 | **QuickSwitch** | 热键/托盘触发，切本地 DDC 并经 TCP 通知对端冗余切换 | 两端 | **是（本目录）** |
 | LocalSend | 局域网文件互传 | 两端 | 否 |
 | Tailscale（可选） | 固定虚拟 IP，抵御 IP 变化 | 两端 | 否 |
@@ -25,7 +25,7 @@ macOS 主机通过 WiFi 接入同一局域网；两台主机共用一台显示�
 ```
 物理键盘（插在 Windows）
   |-- Deskflow 捕获      --> 切换键鼠控制权
-  |-- QuickSwitch 捕获   --> 切换显示器信号源（ControlMyMonitor / DDC-CI 0x60）
+  |-- QuickSwitch 捕获   --> 切换显示器信号源（Windows 用内置 DXVA2 / VCP 0x60）
           |-- TCP 通知 Mac --> Mac 端 m1ddc 再切一次（方案 10.1 的冗余保险）
 ```
 
@@ -37,7 +37,7 @@ Windows 端是 `server`（注册热键），macOS 端是 `client`（只接收 TC
 
 | # | 方案原文 | 本实现 | 原因 |
 | --- | --- | --- | --- |
-| 1 | `ControlMyMonitor.exe <monitor> 96 <value>` | `ControlMyMonitor.exe /SetValue <monitor> 0x60 <value>` | NirSoft 工具的命令行需要子命令；同时提供 `ddc.command_template` 兜底，任何工具都能改。请按 §8.1 先在命令行手动验证一次 |
+| 1 | `ControlMyMonitor.exe <monitor> 96 <value>` | Windows 默认直接调用系统 `dxva2.dll` 读写 VCP 0x60；ControlMyMonitor 仅作为可选回退 | 目标机不再需要额外下载 DDC 工具。原生后端失败时才尝试用户配置的外部工具 |
 | 2 | 连接循环只发心跳、不读数据、无断线检测 | 独立读循环 + 心跳 + 3 个周期无任何消息即判定半开并重连，指数退避到 30s | 方案原版对端进程被杀后 writer 仍非空，通知会静默丢失 |
 | 3 | 通知对端后不校验结果 | 增加 `switch_ack` 确认（默认 4s 超时）并写日志 | 「冗余保险」是否真的生效可被验证，而不是只能靠猜 |
 | 4 | 收到对端请求后再通知对端 | 对端发起的切换不再回传（`notify=False`） | 避免两端互相转发形成回环 |
@@ -45,9 +45,10 @@ Windows 端是 `server`（注册热键），macOS 端是 `client`（只接收 TC
 | 6 | — | 端口被占用时启动即报错退出（退出码 3） | 顺带作为单实例检测，避免两个进程抢键盘热键 |
 | 7 | — | `--status` / `--once` / `--dry-run` / `--print-config` / `--init-config` / `--no-tray` | 方案的 §9 验收清单需要可执行的验证手段 |
 | 8 | 「未来扩展：mDNS 自动发现」 | 已实现可选的 UDP 广播发现（`peer_host: "auto"`），零第三方依赖 | 直接解决方案 1.2 的「IP 可能变化」痛点，不必强制上 Tailscale |
-| 9 | — | 能读出当前输入源（Windows `/GetValue`、macOS `m1ddc get input`、Linux `getvcp 60`），`--status` 直接显示 | 便于确认切换是否真的生效。注意：`m1ddc` 官方 README 的 get 列表没写 input，但源码 `attrCodeFromCommand` 支持，非 set 指令都会先读当前值，因此可用 |
+| 9 | — | 能读出当前输入源（Windows 原生 DXVA2、macOS `m1ddc get input`、Linux `getvcp 60`），`--status` 直接显示 | 便于确认切换是否真的生效。注意：`m1ddc` 官方 README 的 get 列表没写 input，但源码 `attrCodeFromCommand` 支持，非 set 指令都会先读当前值，因此可用 |
 | 9b | — | `--detect-inputs` 输入源识别向导：探测候选取值 → 交互标注哪台机器 → 回读校验 → 写回配置 | 方案要求「不同品牌取值不同，需用工具读取」，向导把这一步自动化，不必手工搬数字 |
 | 9c | — | `ddc.read_template` / `ddc.read_regex` | 读取能力交给任意工具（如 BetterDisplay CLI）；显示器不支持读 VCP 0x60 时也能自行指定 |
+| 9d | — | Windows 原生 DDC 后端（`windows_ddc.py`，DXVA2） | 安装包不再依赖 `ControlMyMonitor.exe`；只要显示器支持并开启 DDC/CI 即可读写 VCP 0x60 |
 | 10 | Linux 只在选型表里提到 ddcutil | 已内置 ddcutil 模板 | 顺手支持，成本一次模板 |
 | 11 | 日志只写文件 | 轮转日志（1MB × 3）+ 控制台 | 长期常驻不会把日志写爆 |
 | 12 | — | 本地 Web 控制台（`webui.py` + `ui/`，默认 http://127.0.0.1:8767/）+ 原生 WebView 设置窗口（`settings_window.py`） | 托盘菜单只能切两下；配置、当前输入源、DDC 命令与事件日志需要一个能一眼看全、能改配置的界面，同时避免每次设置都打开浏览器标签页，也不引入 Electron 之类的重依赖 |
@@ -62,7 +63,8 @@ Windows 端是 `server`（注册热键），macOS 端是 `client`（只接收 TC
 quickswitch/
   main.py            入口：切换逻辑 + 托盘 + 热键 + 命令行
   config.py          配置加载、深度合并、校验、默认值生成
-  ddc.py             DDC/CI 封装（Windows/macOS/Linux 命令模板 + 重试 + 读取）
+  ddc.py             DDC/CI 封装（Windows 原生 DXVA2 + macOS/Linux 命令模板 + 重试 + 读取）
+  windows_ddc.py     Windows 原生 DDC 后端（user32/dxva2，枚举物理显示器并读写 VCP 0x60）
   network.py         asyncio JSON Lines 通信（心跳、重连、双向互连、ACK、预共享密钥校验）
   discovery.py       可选：局域网 UDP 设备发现（peer_host = "auto"）
   webui.py           本地 Web 控制台：回环 HTTP 服务 + 令牌鉴权 + JSON API + 事件缓冲
@@ -78,7 +80,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（1.0.0.0）
+    version_info.txt        Windows exe 的版本资源（1.0.1.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   scripts/
@@ -86,7 +88,7 @@ quickswitch/
     install-task.ps1               注册 Windows 任务计划（登录自启 + 最高权限）
     com.quickswitch.agent.plist    macOS launchd 自启模板
     selftest.py                    本机链路自检（无需第二台机器/显示器）
-  tests/              139 个单元/集成测试（unittest，无第三方依赖）
+  tests/              148 个单元/集成测试（unittest，无第三方依赖）
 ```
 
 ## 4. 快速开始
@@ -102,13 +104,13 @@ pip install -r requirements.txt
 :: 2) 首次运行，生成默认配置 %USERPROFILE%\.quickswitch\config.json
 python main.py --init-config
 
-:: 3) 按 §8.1 手动确认 DDC 能切显示器，然后填入 mac_input / win_input
+:: 3) 按 §8.1 确认 DDC 能切显示器，然后填入 mac_input / win_input
 :: 4) 以管理员身份运行（keyboard 注册全局热键需要管理员权限）
 python main.py
 ```
 
-另需：安装 Deskflow（选 Server）、ControlMyMonitor 解压到 `C:\Tools\ControlMyMonitor.exe`、
-按需安装 LocalSend / Tailscale，见 §4.3 / §4.4。
+另需：安装 Deskflow（选 Server）；按需安装 LocalSend / Tailscale，见 §4.3 / §4.4。
+Windows 端不需要安装 ControlMyMonitor，程序默认使用系统内置 DXVA2。
 
 若 Windows 防火墙挡住了 `listen_port`（默认 8765），用管理员 PowerShell 放行一次即可：
 
@@ -215,11 +217,11 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到�
 | `tray` | 是否显示托盘图标（也可用 `--no-tray` 临时关闭） |
 | `setup.completed` | 首次配置向导是否完成；旧配置没有该字段时自动视为已完成，避免升级后重复弹向导 |
 | `debounce` | 同一目标的重复触发间隔（秒） |
-| `ddc.display_index` | macOS 上 m1ddc 的显示器编号（`m1ddc display list` 查看） |
+| `ddc.display_index` | 物理显示器序号（从 1 开始）；Windows 原生 DXVA2 与 macOS m1ddc 共用该字段 |
 | `ddc.vcp_code` | 输入源 VCP 代码，默认 `0x60`（十进制 96） |
 | `ddc.mac_input` / `ddc.win_input` | 显示器接 Mac / Windows 的输入源值，**必须以实际读取为准** |
-| `ddc.command_template` | 自定义命令模板，字符串或数组；占位符 `{tool}` `{monitor}` `{vcp}` `{display_index}` `{value}` |
-| `ddc.read_template` | 自定义「读取当前输入源」命令模板（同一套占位符）；用于 BetterDisplay CLI 等其它工具 |
+| `ddc.command_template` | 自定义命令模板，字符串或数组；占位符 `{tool}` `{monitor}` `{vcp}` `{display_index}` `{value}`。设置后 Windows 不再使用原生 DXVA2 |
+| `ddc.read_template` | 自定义「读取当前输入源」命令模板（同一套占位符）；用于 BetterDisplay CLI 等其它工具，设置后 Windows 不再使用原生 DXVA2 |
 | `ddc.read_regex` | 从读取命令输出里抓数值的正则（含捕获组取第 1 组）；不填则按平台约定解析 |
 | `ddc.settle` | 切换后等待显示器稳定的秒数（默认 1.2），`--detect-inputs` 探测与校验时使用 |
 | `ddc.retries` | DDC 失败重试次数（显示器偶发无响应很常见，默认重试 2 次） |
@@ -228,7 +230,7 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到�
 | `discovery.broadcast` | 广播地址，可写数组；留空则只用「按本机网段推导的 x.y.z.255」 |
 | `web.enabled` | 是否启动本地 Web 控制台（默认开；也可用 `--no-web` 临时关闭） |
 | `web.host` / `web.port` | 控制台监听地址与端口，默认 `127.0.0.1:8767`；改成非回环地址会有告警 |
-| `auth.secret` | 预共享密钥（两端一致）；留空 = 不校验，见 §6.3 |
+| `auth.secret` | 预共享配对码（两端一致，默认生成 6 位）；留空 = 不校验，旧长密钥仍兼容，见 §6.3 |
 
 输入源常见值：DP1=15、DP2=16、HDMI1=17、HDMI2=18、USB-C=27（VCP 0x60）。
 
@@ -236,10 +238,10 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以 Deskflow 能收到�
 
 ```bash
 python main.py                 # 常驻运行：托盘 + 全局热键
-python main.py --status        # 自检：配置 / DDC 工具 / 当前输入源 / 对端连通性
+python main.py --status        # 自检：配置 / DDC 后端 / 当前输入源 / 对端连通性
 python main.py --once mac      # 执行一次完整切换后退出（验证 DDC + 通知链路）
 python main.py --detect-inputs # 识别显示器输入源取值并写回配置（交互式向导）
-python main.py --dry-run       # 只打印将执行的 DDC 命令，不动硬件
+python main.py --dry-run       # 只打印将执行的 DDC 操作，不动硬件
 python main.py --print-config  # 打印合并默认值后的生效配置
 python main.py --no-tray       # 无托盘后台运行
 python main.py --web-port 9000 # Web 控制台换端口（默认 8767）
@@ -304,7 +306,7 @@ macOS 使用系统 WKWebView，Windows 使用 WebView2；窗口由独立子进�
 - macOS：`cp scripts/com.quickswitch.agent.plist ~/Library/LaunchAgents/` 后 `launchctl load -w ...`
   （需先把 plist 里的 `/Users/CHANGE_ME/quickswitch` 换成实际路径；用「系统设置 → 通用 → 登录项」更简单）
 
-### 6.3 局域网访问控制（预共享密钥）
+### 6.3 局域网访问控制（6 位配对码）
 
 **默认不设防**：`auth.secret` 为空时，同一网段里任何机器只要往 `listen_port` 发一行
 `{"type":"switch","target":"mac"}`，显示器就会被切走。家用 LAN 通常可以接受，但只要
@@ -312,15 +314,18 @@ macOS 使用系统 WKWebView，Windows 使用 WebView2；窗口由独立子进�
 
 ```bash
 python3 main.py --gen-secret
-# {"auth": {"secret": "ReKQONRgzal_BnZAnRya3bx_FpCbLXQaLe1dDGSB5zk"}}
+# {"auth": {"secret": "K7QM9X"}}
 ```
 
 把这一行合并进**两端**的 `~/.quickswitch/config.json`（或者控制台页面「配置」区块里改别的字段、
-密钥直接改文件），重启两端后确认：
+配对码直接改文件），重启两端后确认：
+
+默认配对码是 6 位、去掉 `I/O/0/1` 的 32 符号随机串，约 30 bit 熵。它用于家用局域网便利配对；
+在访客网络或公共 WiFi 中建议手动改成更长的随机值。配对码只用于 HMAC 挑战应答，不直接上网。
 
 ```
 python3 main.py --status
-  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.0）
+  对端         : 192.168.1.101:8765 已连接（对端 DESKTOP-ABC，role=server，版本=1.0.1）
   密钥校验     : 已通过（hmac-sha256）
 ```
 
@@ -328,8 +333,8 @@ python3 main.py --status
 
 | 情形 | 结果 |
 | --- | --- |
-| 两端密钥一致 | 连接建立后自动完成质询-响应，日志出现「对端密钥校验通过」 |
-| 两端密钥不一致 | 双方都校验不通过；对端发来的 `switch` / `switch_ack` 被丢弃（日志「丢弃未经校验的报文：校验码不匹配」），本端也不再发送会被丢弃的通知 |
+| 两端配对码一致 | 连接建立后自动完成质询-响应，日志出现「对端密钥校验通过」 |
+| 两端配对码不一致 | 双方都校验不通过；对端发来的 `switch` / `switch_ack` 被丢弃（日志「丢弃未经校验的报文：校验码不匹配」），本端也不再发送会被丢弃的通知 |
 | 一端配置、一端没配 | 没配的那端发出的切换请求会被丢弃；`--status` 会明确提示是哪一边没配 |
 | 都没配 | 与旧版本行为一致，直连直切 |
 
@@ -341,7 +346,7 @@ python3 main.py --status
   因此抓包拿到的旧校验码无法重放（换 nonce 就算不出新校验码）；比较用 `hmac.compare_digest` 常量时间；
 - 不防「中间人转发」：转发者拿不到密钥，改不了报文、也造不出新报文，只是把两条连接接在一起，
   而在两端本就互相信任的前提下这没有额外收益；
-- Web 控制台可以在「安全」区块修改 `auth.secret`，但密钥不会进入 `/api/status`、事件日志或启动日志；读取配置仍需要本机随机令牌。
+- Web 控制台可以在「安全」区块修改 `auth.secret`，但配对码不会进入 `/api/status`、事件日志或启动日志；读取配置仍需要本机随机令牌。
 
 ## 7. 打包与分发（PyInstaller + 签名 / 公证）
 
@@ -352,8 +357,8 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe`（**单文件**，自带 Python 运行时、WebView 依赖与 `ui/`） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/` 与 WKWebView 桥接依赖） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.0.0`），
-spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.0.0.0`），不会两处漂移。
+两端的目标机都不需要预装 Python 或依赖。版本号只有一处来源：`main.py` 的 `VERSION`（当前 `1.0.1`），
+spec 与 Windows 脚本都从它派生 `CFBundleShortVersionString` / `version_info.txt`（`1.0.1.0`），不会两处漂移。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
 
@@ -381,7 +386,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-1.0.0.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-1.0.1.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -432,14 +437,14 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 
 ```bash
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-1.0.0-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-1.0.1-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis /DVERSION=1.0.0 packaging\installer.nsi
+makensis /DVERSION=1.0.1 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后自动构建
@@ -449,8 +454,8 @@ macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -493,18 +498,18 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v1.0.0` 是新的首个正式版本，macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v1.0.1` 是 Windows 原生 DDC 与 6 位配对码修复版本，macOS 安装包仅提供 Apple Silicon（arm64）。
 
 - **已验证**：首次启动自动打开四步配置向导（连接 / 安全 / 显示器 / 完成）；
-  `setup.completed` 支持旧配置迁移，已有配置不会重复弹向导。139 项测试通过，`node --check ui/app.js`
+  `setup.completed` 支持旧配置迁移，已有配置不会重复弹向导。148 项测试通过，`node --check ui/app.js`
   与 Python 编译检查通过；1120×820、780×700、浅色与深色布局已检查。
 - **已验证**：`build-macos.sh --no-sign` 产出 arm64 `.app`，`build-dmg.sh` 产出 DMG 并通过
   `hdiutil verify`；成品 App 会拉起独立的 `--settings-window` 子进程，`/api/status` 返回真实
-  `setup.completed`、DDC 工具与输入源状态。
+  `setup.completed`、DDC 后端与输入源状态。
 - **已验证（本机 macOS）**：`m1ddc` 读取当前输入源正常；运行中的 App 实际执行
   `Windows → 15`、`Mac → 18` 两次 DDC 切换并回读一致。macOS 自动使用 `client` 角色，
   Windows 自动使用 `server` 角色。
-- **发布产物**：GitHub Actions 在 `v1.0.0` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **发布产物**：GitHub Actions 在 `v1.0.1` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；
@@ -515,7 +520,16 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 8.1 DDC 双向控制
 
-Windows（显示器当前显示 Windows）：
+Windows 默认走系统内置的 DXVA2 后端，封装在 `windows_ddc.py` 中。程序会枚举物理显示器，
+用 `GetVCPFeatureAndVCPFeatureReply` / `SetVCPFeature` 读写 VCP 0x60。先用 QuickSwitch 自检：
+
+```bat
+"%ProgramFiles%\QuickSwitch\QuickSwitch.exe" --status
+```
+
+正常时 DDC 后端一行应显示 `Windows 原生 DDC（DXVA2）已检测到 ...`，读取方式显示
+`Windows 原生 DXVA2（无需外部命令）`。只有原生后端失败、且确实配置了
+`ddc.controlmyMonitor_path` 时，才会尝试下面这个可选回退工具：
 
 ```bat
 C:\Tools\ControlMyMonitor.exe /SetValue "\\.\DISPLAY1\Monitor0" 0x60 15
@@ -538,13 +552,14 @@ m1ddc display 1 set input 17      # 切到 Windows（需显示器支持在非激
 
 | 平台 | 读取命令 | 说明 |
 | --- | --- | --- |
-| Windows | `ControlMyMonitor.exe /GetValue <monitor> 0x60` | 读 `Current Value` 行 |
+| Windows | 系统 `dxva2.dll`（原生 DXVA2） | 按 `ddc.display_index` 选择物理显示器；ControlMyMonitor 仅为可选回退 |
 | macOS | `m1ddc display <n> get input` | 只输出一个整数；显示器不支持读 VCP 0x60 时命令失败 → 视为读不到 |
 | Linux | `ddcutil --display <n> getvcp 60 --terse` | 输出形如 `VCP 60 SNC 0x000f` |
 | 任意 | `ddc.read_template` + `ddc.read_regex` | 用别的工具（如 BetterDisplay CLI）读取时改这两项即可 |
 
-> 若 `monitor_id` 或 `display_index` 与上面不同，先修正配置；
-> 若你的 ControlMyMonitor 版本命令行不同，用 `ddc.command_template` 覆盖即可，无需改代码。
+> 若 `display_index` 与实际的物理显示器顺序不同，先修正配置；单屏保持 `1`。
+> 只有使用外部回退时才需要 `monitor_id`；ControlMyMonitor 版本命令行不同，可用
+> `ddc.command_template` 覆盖，无需改代码。
 
 ### 8.2 自动识别输入源取值
 
@@ -605,18 +620,18 @@ python main.py --once mac               # 真实切换
 - 剪贴板：Windows 复制文本 → Mac 粘贴，再反向验证（Deskflow）；
 - 文件传输：两端打开 LocalSend 应能互相发现并发送文件。
 
-### 8.5 预共享密钥（配了 `auth.secret` 才需要跑）
+### 8.5 配对码校验（配了 `auth.secret` 才需要跑）
 
 ```bash
-# 两端都配同一个密钥后重启，各跑一次：
+# 两端都配同一个 6 位配对码后重启，各跑一次：
 python3 main.py --status          # 应显示「密钥校验：已通过（hmac-sha256）」
 ```
 
 - 两端日志应出现「对端密钥校验通过」，且**没有**「丢弃未经校验的报文」；
-- 故意把一端的密钥改错再重启：那端日志出现「丢弃未经校验的报文：校验码不匹配」，
+- 故意把一端的配对码改错再重启：那端日志出现「丢弃未经校验的报文：校验码不匹配」，
   `--status` 显示「未通过」，此时按热键本机照常切换、但对端不动（符合预期）；
 - 不改任何硬件也能验证这条链路：`python3 scripts/selftest.py` 里包含 3 项对应用例
-  （正确密钥通过、错误密钥的连接能建立但切换被拒、错误密钥没能触发切换）。
+  （正确配对码通过、错误配对码的连接能建立但切换被拒、错误配对码没能触发切换）。
 
 ## 9. 故障排查
 
@@ -625,14 +640,15 @@ python3 main.py --status          # 应显示「密钥校验：已通过（hmac-
 | 启动报「监听端口 8765 不可用」 | 已有一个 QuickSwitch 在跑（退出码 3）；或改 `listen_port` |
 | 按热键无反应 | 需管理员权限（用 `install-task.ps1` 或「以管理员身份运行」）；检查是否与其他软件抢占热键；`--log-level DEBUG` 看是否注册成功 |
 | 只切了显示器和键鼠之一 | 检查 Deskflow 与 `config.json` 的热键是否完全一致 |
-| 显示器不切换，日志显示 DDC 失败 | 见 §8.1 手动验证；确认 `monitor_id` / `display_index`；显示器需支持并开启 DDC/CI（部分型号需在 OSD 菜单打开）；建议视频线直连、避免转接 |
-| `--status` 显示「无法读取」 | 显示器不支持读 VCP 0x60（部分型号如此），或工具/路径不对。此时仍可正常切换，只是无法回读校验：取值请用 §8.1 手动确认，或用 `ddc.read_template` 换一个支持读取的工具 |
+| 显示器不切换，日志显示 DDC 失败 | 确认 `ddc.display_index`；显示器需支持并开启 DDC/CI（部分型号需在 OSD 菜单打开）；建议视频线直连、避免转接。Windows 原生 DXVA2 失败时，ControlMyMonitor 只是可选回退，不是必需依赖 |
+| Windows 提示找不到 `ControlMyMonitor.exe` | 这是旧版安装包的外部回退路径。最新版应使用原生 DXVA2；升级后重跑 `--status`，若仍看不到原生后端，检查显示器 DDC/CI 与连接方式 |
+| `--status` 显示「无法读取」 | 显示器不支持/未开启读 VCP 0x60，或当前后端不可用。此时仍可能正常发送切换，只是无法回读校验：可用 §8.1 的方法确认，或配置 `ddc.read_template` 使用支持读取的工具 |
 | `--detect-inputs` 探测不到可用值 | 先确认 §8.1 的手动 set/get 是否都能成功；显示器若不允许在非激活输入源上 DDC，就用手动方式确认两个值后 `--detect-inputs --mac-input 15 --win-input 17` |
 | 识别出的两个值反了 | 直接 `--detect-inputs --mac-input <值> --win-input <值>` 覆盖，或手动改 `config.json`；两个值的配对不影响底层机制 |
 | Windows 能切到 Mac，Mac 侧切不回 Windows | 方案 10.1 描述的现象：非激活输入源不支持 DDC。Mac 端常驻 QuickSwitch 后由 TCP 通知切换即可；仍不行则用显示器自动信号源或按钮兜底 |
 | 日志出现「对端未确认」 | 对端程序没在跑、防火墙挡了 8765、或 `peer_host` 指错。用 `python main.py --status` 检查连通性 |
-| 日志出现「丢弃未经校验的报文」 | 两端 `auth.secret` 不一致（或对端没配）。用 `--status` 看「密钥校验」一行，两端填同一个密钥后重启 |
-| 设了密钥后完全切不过去 | 确认两端进程都重启过（密钥在启动时读取），且没有多余空格；`--status` 显示「未完成」通常是对端版本过旧（不支持 `auth_challenge`） |
+| 日志出现「丢弃未经校验的报文」 | 两端配对码不一致（或对端没配）。用 `--status` 看「密钥校验」一行，两端填同一个 6 位配对码后重启 |
+| 设了配对码后完全切不过去 | 确认两端进程都重启过（配对码在启动时读取），且没有多余空格；`--status` 显示「未完成」通常是对端版本过旧（不支持 `auth_challenge`） |
 | macOS 提示应用「已损坏」 | `xattr -c /Applications/Deskflow.app`，并重新授予辅助功能权限 |
 | 在同一台机器上测试两端 | 用 `--config` 指定两份配置（不同 `listen_port`），或让 `peer_host` 明确指向 127.0.0.1 |
 | IP 经常变化 | 用 Tailscale，或 `"peer_host": "auto"`；若广播被阻断，把 `discovery.broadcast` 改成网段广播地址（如 `192.168.1.255`） |
@@ -698,7 +714,8 @@ python3 scripts/selftest.py
 ## 12. 参考
 
 - Deskflow：https://github.com/deskflow/deskflow
-- ControlMyMonitor：https://www.nirsoft.net/utils/control_my_monitor.html
+- Windows DXVA2 原生 DDC：系统组件，无需额外下载
+- ControlMyMonitor（可选回退）：https://www.nirsoft.net/utils/control_my_monitor.html
 - m1ddc：https://github.com/waydabber/m1ddc
 - ddcutil：https://www.ddcutil.com/
 - LocalSend：https://github.com/localsend/localsend

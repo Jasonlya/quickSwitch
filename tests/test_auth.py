@@ -13,7 +13,14 @@ import unittest
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from config import ConfigError, default_config, validate
+from config import (
+    PAIRING_ALPHABET,
+    PAIRING_CODE_LENGTH,
+    ConfigError,
+    default_config,
+    generate_pairing_code,
+    validate,
+)
 from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -81,6 +88,19 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(any("为空" in item for item in warnings))
 
         cfg["auth"]["secret"] = SECRET
+        self.assertFalse(any("auth" in item for item in validate(cfg)))
+
+    def test_generated_pairing_code_is_short_and_unambiguous(self) -> None:
+        code = generate_pairing_code()
+        self.assertEqual(len(code), PAIRING_CODE_LENGTH)
+        self.assertTrue(set(code) <= set(PAIRING_ALPHABET))
+        self.assertNotIn("I", code)
+        self.assertNotIn("O", code)
+        self.assertNotIn("0", code)
+        self.assertNotIn("1", code)
+
+        cfg = default_config()
+        cfg["auth"]["secret"] = code
         self.assertFalse(any("auth" in item for item in validate(cfg)))
 
     def test_validate_rejects_non_string_secret(self) -> None:
@@ -247,7 +267,8 @@ class CommandLineTests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         secret = json.loads(proc.stdout)["auth"]["secret"]
-        self.assertGreaterEqual(len(secret), 32)
+        self.assertEqual(len(secret), PAIRING_CODE_LENGTH)
+        self.assertTrue(set(secret) <= set(PAIRING_ALPHABET))
         self.assertFalse(validate({**default_config(), "auth": {"secret": secret}}))
 
         again = subprocess.run(
