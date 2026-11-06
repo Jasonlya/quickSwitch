@@ -5,6 +5,8 @@
 
 一键切换**显示器输入源**和**键鼠控制权**，并在两台电脑之间双向共享**剪贴板**（文本、HTML、图片）。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows；组合键可以自行录制。
 
+> ⭐ **如果 QuickSwitch 帮到了你，欢迎点个 [Star](https://github.com/Jasonlya/quickswitch)。** 这是对项目最直接的支持，也能帮助更多需要双机切换的人发现它。
+
 ![QuickSwitch 主界面：两个切换按钮、按钮内的热键标记和折叠的信息入口](docs/images/quickstart.png)
 
 ## 下载安装
@@ -109,6 +111,25 @@ git push origin v2.1.0
 [![QuickSwitch 运行架构](docs/images/quickswitch-architecture.gif)](https://jasonlya.github.io/quickswitch/architecture/)
 
 点击动图打开可交互版本，可切换深色/浅色主题，并查看主链路、键鼠共享和控制状态。
+
+## 开源鸣谢
+
+QuickSwitch 的实现离不开这些开源项目及其维护者、贡献者：
+
+- [Deskflow](https://github.com/deskflow/deskflow)：键鼠共享、剪贴板共享和跨设备控制核心。安装包内置未经修改的 Deskflow 1.27.0 无界面构建，遵循 GPL-2.0（附 OpenSSL 例外）。
+- [m1ddc](https://github.com/waydabber/m1ddc)：Apple Silicon Mac 上的 DDC/CI 显示器输入源读取与切换，遵循 MIT。
+- [pywebview](https://github.com/r0x0r/pywebview)、[Pillow](https://github.com/python-pillow/Pillow)、[pystray](https://github.com/moses-palmer/pystray)、[keyboard](https://github.com/boppreh/keyboard)：分别用于设置窗口、图像与托盘图标、系统托盘和 Windows 全局热键。
+- [PyInstaller](https://github.com/pyinstaller/pyinstaller)：构建 macOS App 与 Windows 安装包。
+
+感谢上述项目作者与所有贡献者。完整许可证说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。QuickSwitch 与这些项目不存在隶属关系，也不代表其官方认可。
+
+## 免责声明
+
+- QuickSwitch 是个人开源项目，与 Deskflow、Apple、Microsoft、显示器厂商及上述第三方项目均无隶属、合作或官方背书关系。
+- 本软件按 [MIT License](LICENSE) 的「现状」提供，不附带任何明示或默示担保。作者不对因使用或无法使用本软件造成的直接或间接损失承担责任。
+- DDC/CI 的行为取决于显示器、线缆、转接设备、驱动和系统实现，可能出现切换失败、黑屏、分辨率异常或显示器状态异常。请先确认可通过显示器按钮恢复输入源；在远程、无人值守或关键工作环境中请谨慎使用。
+- 键鼠共享与剪贴板同步会传输键盘、鼠标和剪贴板内容。请仅在可信的本地网络中使用，妥善保管配对码，并遵守所在组织的数据与设备使用政策。配置不当可能造成数据泄露或误操作。
+- 请勿将本项目用于医疗、工业控制、交通运输、生产系统或其他一旦故障可能造成人身伤害、重大财产损失的高风险场景。第三方组件由其各自作者维护，适用各自的许可证与免责声明。
 
 ## License
 
