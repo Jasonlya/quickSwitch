@@ -84,6 +84,8 @@ jobs:
       - name: 验证图标
         run: test -s packaging/icon.icns && test -s packaging/icon.png
       - name: 准备内置 Deskflow
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 packaging/fetch-deskflow.py --target macos-arm64 --if-missing
       - name: PyInstaller 打包
         run: pyinstaller --clean --noconfirm packaging/quickswitch.spec
@@ -136,8 +138,17 @@ jobs:
         shell: bash
         run: test -s packaging/icon.ico
       - name: 准备内置 Deskflow
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         shell: bash
-        run: python packaging/fetch-deskflow.py --target windows-x64 --if-missing
+        run: |
+          set +e
+          python packaging/fetch-deskflow.py --target windows-x64 --if-missing 2>&1 | tee "$RUNNER_TEMP/deskflow.log"
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=Deskflow 准备失败::$(tail -n 20 "$RUNNER_TEMP/deskflow.log" | tr '\n' ' ')"
+          fi
+          exit "$code"
       - name: PyInstaller 打包
         shell: bash
         run: pyinstaller --clean --noconfirm packaging/quickswitch.spec

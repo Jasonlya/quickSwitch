@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -38,6 +39,13 @@ ASSETS: Dict[str, Tuple[str, str]] = {
         f"deskflow-{VERSION}-win-x64-portable.zip",
         "8d19004cc3625623489d96580c1b58fd13ee78185689907fd4478595f93fab9a",
     ),
+}
+
+# GitHub Release 的直链在共享 CI IP 上偶尔会被限流/超时。带 GITHUB_TOKEN
+# 调用资产 API 可以走已认证额度，失败时再回退到普通下载地址。
+ASSET_IDS: Dict[str, int] = {
+    "macos-arm64": 603209747,
+    "windows-x64": 603209735,
 }
 
 
@@ -59,11 +67,42 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def download(url: str, destination: Path) -> None:
-    print(f"  下载 {url}")
-    request = urllib.request.Request(url, headers={"User-Agent": "QuickSwitch-build"})
+def _download_once(url: str, destination: Path, headers: Dict[str, str]) -> None:
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as handle:
         shutil.copyfileobj(response, handle, length=1024 * 1024)
+
+
+def download(url: str, destination: Path, asset_id: Optional[int] = None) -> None:
+    token = (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
+    candidates = []
+    if token and asset_id is not None:
+        candidates.append(
+            (
+                f"https://api.github.com/repos/deskflow/deskflow/releases/assets/{asset_id}",
+                {
+                    "Accept": "application/octet-stream",
+                    "Authorization": f"Bearer {token}",
+                },
+            )
+        )
+    candidates.append((url, {}))
+
+    errors = []
+    for candidate, extra_headers in candidates:
+        headers = {"User-Agent": "QuickSwitch-build", **extra_headers}
+        for attempt in range(1, 3):
+            try:
+                print(f"  下载 {candidate}（第 {attempt}/2 次）")
+                _download_once(candidate, destination, headers)
+                return
+            except Exception as exc:
+                errors.append(f"{candidate}: {exc}")
+                print(f"  下载失败：{exc}")
+                if attempt < 2:
+                    time.sleep(attempt * 2)
+
+    raise RuntimeError("Deskflow 下载失败：" + "；".join(errors[-4:]))
 
 
 def safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
@@ -166,7 +205,7 @@ def prepare(target_name: str, output: Path, *, if_missing: bool) -> Path:
 
     with tempfile.TemporaryDirectory(prefix="quickswitch-download-") as tmp:
         archive = Path(tmp) / filename
-        download(f"{RELEASE_URL}/{filename}", archive)
+        download(f"{RELEASE_URL}/{filename}", archive, ASSET_IDS.get(target_name))
         actual = sha256(archive)
         if actual != expected:
             raise RuntimeError(f"{filename} SHA256 不匹配：期望 {expected}，实际 {actual}")
