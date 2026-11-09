@@ -222,6 +222,11 @@ class MacHotkeyManager:
         callback = self._callbacks.get(hotkey_id)
         if callback is None:
             return
+        combo = next(
+            (item[2] for item in self._refs if item[1] == hotkey_id),
+            f"id={hotkey_id}",
+        )
+        log.info("macOS 热键触发：%s", combo)
         try:
             callback()
         except Exception:

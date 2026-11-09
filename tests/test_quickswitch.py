@@ -43,6 +43,7 @@ class FakeDDC:
         self.ok = ok
         self.calls: List[str] = []
         self.dry_run = False
+        self.current = None
 
     def switch_to_mac(self) -> bool:
         self.calls.append("mac")
@@ -51,6 +52,9 @@ class FakeDDC:
     def switch_to_win(self) -> bool:
         self.calls.append("win")
         return self.ok
+
+    def current_target(self) -> str | None:
+        return self.current
 
     def tool_available(self):
         return True, "fake"
@@ -204,6 +208,47 @@ class TwoNodeTests(unittest.IsolatedAsyncioTestCase):
         self.server._remote_task.cancel()
         await asyncio.sleep(0)
 
+    async def test_probe_requires_matching_pong_id(self) -> None:
+        class FakePeer:
+            connected = True
+
+            def __init__(self) -> None:
+                self.sent: List[Dict[str, Any]] = []
+
+            async def send_all(self, msg: Dict[str, Any]) -> int:
+                self.sent.append(dict(msg))
+                return 1
+
+        peer = FakePeer()
+        quick = QuickSwitch(base_cfg(), ddc=FakeDDC(), peer=peer)  # type: ignore[arg-type]
+        task = asyncio.create_task(quick._probe_peer(0.8))
+        self.assertTrue(await wait_for(lambda: bool(peer.sent)))
+
+        await quick.handle_message({"type": "pong", "id": "stale-probe"})
+        await asyncio.sleep(0.05)
+        self.assertFalse(task.done())
+
+        await quick.handle_message({"type": "pong", "id": peer.sent[0]["id"]})
+        self.assertTrue(await asyncio.wait_for(task, 0.5))
+
+    async def test_probe_accepts_legacy_pong_without_id(self) -> None:
+        class FakePeer:
+            connected = True
+
+            def __init__(self) -> None:
+                self.sent: List[Dict[str, Any]] = []
+
+            async def send_all(self, msg: Dict[str, Any]) -> int:
+                self.sent.append(dict(msg))
+                return 1
+
+        peer = FakePeer()
+        quick = QuickSwitch(base_cfg(), ddc=FakeDDC(), peer=peer)  # type: ignore[arg-type]
+        task = asyncio.create_task(quick._probe_peer(0.8))
+        self.assertTrue(await wait_for(lambda: bool(peer.sent)))
+        await quick.handle_message({"type": "pong", "ts": 1.0})
+        self.assertTrue(await asyncio.wait_for(task, 0.5))
+
 
 class TriggerEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def test_trigger_without_peer_uses_local_ddc(self) -> None:
@@ -227,6 +272,30 @@ class TriggerEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
         # 不同目标不受去抖影响
         self.assertTrue(await quick.trigger("win"))
         self.assertEqual(ddc.calls, ["mac", "win"])
+
+    async def test_repeat_switch_to_current_input_skips_ddc(self) -> None:
+        ddc = FakeDDC()
+        ddc.current = "mac"
+        quick = QuickSwitch(base_cfg(), ddc=ddc)
+        quick.state = "mac"
+        self.assertTrue(await quick.trigger("mac"))
+        self.assertEqual(ddc.calls, [])
+        self.assertIn("已经在", quick.last_notice)
+
+    async def test_first_switch_to_current_input_skips_ddc(self) -> None:
+        ddc = FakeDDC()
+        ddc.current = "mac"
+        quick = QuickSwitch(base_cfg(), ddc=ddc)
+        self.assertIsNone(quick.state)
+        self.assertTrue(await quick.trigger("mac"))
+        self.assertEqual(ddc.calls, [])
+        self.assertEqual(quick.state, "mac")
+
+    async def test_first_switch_with_unknown_input_still_switches(self) -> None:
+        ddc = FakeDDC()
+        quick = QuickSwitch(base_cfg(), ddc=ddc)
+        self.assertTrue(await quick.trigger("mac"))
+        self.assertEqual(ddc.calls, ["mac"])
 
     async def test_unknown_target_raises(self) -> None:
         quick = QuickSwitch(base_cfg(), ddc=FakeDDC())

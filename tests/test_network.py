@@ -96,6 +96,29 @@ class PeerConnectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_peer_info_name(self) -> None:
         self.assertEqual(self.a.peer_info.get("name"), "b")
 
+    async def test_send_all_uses_every_open_channel(self) -> None:
+        class FakeWriter:
+            def __init__(self) -> None:
+                self.data = b""
+
+            def is_closing(self) -> bool:
+                return False
+
+            def write(self, data: bytes) -> None:
+                self.data += data
+
+            async def drain(self) -> None:
+                return None
+
+        outbound, inbound = FakeWriter(), FakeWriter()
+        peer = PeerConnection("127.0.0.1", 1, 2, recorder([]), name="fake")
+        peer._writer = outbound  # type: ignore[assignment]
+        peer._inbound = inbound  # type: ignore[assignment]
+        sent = await peer.send_all({"type": "ping", "id": "probe-all"})
+        self.assertEqual(sent, 2)
+        self.assertIn(b"probe-all", outbound.data)
+        self.assertIn(b"probe-all", inbound.data)
+
 
 class PeerConnectionEdgeCases(unittest.IsolatedAsyncioTestCase):
     async def test_send_without_connection_returns_false(self) -> None:

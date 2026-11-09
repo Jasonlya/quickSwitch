@@ -237,11 +237,12 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch ${{ github.ref_name }}：修复 macOS 本机热键与图片剪贴板兼容性。
+            QuickSwitch ${{ github.ref_name }}：修复 macOS 热键黑屏与探活假阴性。
 
-            - **macOS 本机热键**：macOS client 现在通过 Carbon 注册切换热键，在 Mac 键盘上按 `Ctrl+Alt+1` / `Ctrl+Alt+2` 也会切换显示器与键鼠控制权；设置页保存后立即重新注册。
-            - **图片粘贴修复**：macOS 复制截图或图片到 Windows 时，QuickSwitch 会补写 Windows 可解码的标准 BMP，避免粘贴成文件名或无法粘贴。
-            - **保留既有能力**：睡眠 / 关机保护、断线自动回切、可选 Wake-on-LAN、双向剪贴板和显示器 DDC 切换均保持不变。
+            - **重复切换不再黑屏**：重复切到显示器当前输入时，先读取 DDC 输入并跳过重复切换，避免同一输入反复切换造成闪黑。
+            - **切 Windows 不再误判离线**：ping/pong 探活带唯一 ID，并同时发往所有可用 TCP 连接，避免半开的旧连接导致“Windows 当前不可用”的假阴性。
+            - **macOS 热键更可靠**：在 `NSApplication` 初始化后重新注册 Carbon 热键，并记录热键触发日志，便于确认按键是否真正派发。
+            - **保留既有能力**：macOS 本机热键、macOS → Windows 图片剪贴板兼容、睡眠 / 关机保护、断线自动回切、可选 Wake-on-LAN、双向剪贴板和显示器 DDC 切换均保持不变。
             - 继续内置官方 Deskflow 1.27.0 无界面核心，Windows 自动服务端、macOS 自动客户端
             - 保留稳定的 macOS Ad-hoc 授权、DDC 输入源切换、6 位配对码、配置向导、Windows 高 DPI 修复和安装包内置 Python 运行时
             - macOS 仅支持 Apple Silicon（arm64），Windows 支持 10/11 x64

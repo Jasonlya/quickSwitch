@@ -339,6 +339,28 @@ class PeerConnection:
         self._drop_writer(writer)
         return False
 
+    def _send_targets(self) -> List[asyncio.StreamWriter]:
+        """所有可写连接，优先主动拨出的连接，但不会漏掉对端连入的连接。"""
+        writers: List[asyncio.StreamWriter] = []
+        for writer in (self._writer, self._inbound):
+            if writer is not None and not writer.is_closing() and writer not in writers:
+                writers.append(writer)
+        return writers
+
+    async def send_all(self, msg: Message) -> int:
+        """把同一条报文发到每一条可用连接，返回成功发送的连接数。
+
+        探活必须这样做：主动拨出的 TCP 连接可能已经半开，而对端连入的连接仍然
+        正常；只写 ``active_writer`` 会把可用的机器误判成离线。
+        """
+        sent = 0
+        for writer in self._send_targets():
+            if await self._send_line(writer, msg):
+                sent += 1
+            else:
+                self._drop_writer(writer)
+        return sent
+
     async def _send_line(self, writer: Optional[asyncio.StreamWriter], msg: Message) -> bool:
         """写到指定的那条连接。
 

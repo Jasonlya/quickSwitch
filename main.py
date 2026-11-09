@@ -54,7 +54,7 @@ from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 from wol import local_mac_addresses, parse_macs, send_magic_packet
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
 TARGETS = ("mac", "win")
 
 
@@ -191,6 +191,7 @@ class QuickSwitch:
         self.remote_target = "mac" if role == "server" else "win"
         self._peer_wake_macs: List[str] = []
         self._last_pong = 0.0
+        self._pending_pongs: Dict[str, asyncio.Future] = {}
         self._liveness_task: Optional[asyncio.Task] = None
         self.last_error = ""
         self.last_notice = ""
@@ -258,6 +259,15 @@ class QuickSwitch:
             if not await self._ensure_target_ready(target, source=source):
                 log.warning("已取消切换：%s", self.last_error)
                 return False
+
+            if await self._already_on_target(target):
+                self.state = target
+                self.last_notice = f"显示器已经在 {LABEL[target]}"
+                log.info(
+                    "显示器已经在 %s，跳过重复 DDC 切换（来源：%s）",
+                    LABEL[target], source,
+                )
+                return True
 
             local_task = asyncio.create_task(self._local_switch(target))
             remote_task: Optional[asyncio.Task] = None
@@ -350,26 +360,61 @@ class QuickSwitch:
         )
         return False
 
+    async def _already_on_target(self, target: str) -> bool:
+        """避免对同一个输入重复写 DDC：部分显示器重复切同一输入会短暂黑屏。"""
+        if self.state is not None and self.state != target:
+            return False
+        current_target = getattr(self.ddc, "current_target", None)
+        if not callable(current_target):
+            return self.state == target
+        try:
+            current = await asyncio.wait_for(
+                asyncio.to_thread(current_target), timeout=0.8
+            )
+        except asyncio.TimeoutError:
+            log.debug("读取当前输入超时（0.8s），继续执行切换")
+            return False
+        except Exception as exc:
+            log.debug("读取当前输入失败：%s", exc)
+            return self.state == target
+        if current is None:
+            return self.state == target
+        return current == target
+
     async def _probe_peer(self, timeout: float) -> bool:
         peer = self.peer
         if peer is None or not getattr(peer, "connected", False):
             return False
-        started = time.monotonic()
+        probe_id = f"probe-{uuid.uuid4().hex}"
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_pongs[probe_id] = future
         try:
-            sent = await asyncio.wait_for(
-                peer.send({"type": "ping", "ts": time.time(), "id": f"probe-{uuid.uuid4().hex[:8]}"}),
-                timeout=max(0.2, timeout),
-            )
+            payload = {"type": "ping", "ts": time.time(), "id": probe_id}
+            sender = getattr(peer, "send_all", None)
+            if callable(sender):
+                sent = await asyncio.wait_for(sender(payload), timeout=max(0.2, timeout))
+            else:  # 兼容测试替身或旧连接对象
+                sent = int(bool(await asyncio.wait_for(peer.send(payload), timeout=max(0.2, timeout))))
+            if not sent:
+                return False
+            await asyncio.wait_for(asyncio.shield(future), timeout=max(0.2, timeout))
+            return True
         except (asyncio.TimeoutError, OSError, ConnectionError):
             return False
-        if not sent:
+        finally:
+            self._pending_pongs.pop(probe_id, None)
+            if not future.done():
+                future.cancel()
+
+    async def _send_message(self, msg: Dict[str, Any]) -> bool:
+        """向对端发送应用层消息；优先覆盖两条连接，避开半开的旧连接。"""
+        peer = self.peer
+        if peer is None:
             return False
-        deadline = started + timeout
-        while time.monotonic() < deadline:
-            if self._last_pong >= started:
-                return True
-            await asyncio.sleep(0.05)
-        return False
+        sender = getattr(peer, "send_all", None)
+        if callable(sender):
+            return await sender(msg) > 0
+        return bool(await peer.send(msg))
 
     async def _try_wake(self, target: str) -> bool:
         wake = self.cfg.get("wake") or {}
@@ -524,7 +569,7 @@ class QuickSwitch:
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[msg_id] = future
         try:
-            sent = await self.peer.send(
+            sent = await self._send_message(
                 {"type": "switch", "target": target, "id": msg_id, "source": self.name}
             )
             if not sent:
@@ -546,10 +591,20 @@ class QuickSwitch:
                 reply = {"type": "pong", "ts": msg.get("ts")}
                 if msg.get("id"):
                     reply["id"] = msg.get("id")
-                await self.peer.send(reply)
+                await self._send_message(reply)
             return
         if mtype == "pong":
             self._last_pong = time.monotonic()
+            pong_id = str(msg.get("id") or "")
+            if pong_id and pong_id in self._pending_pongs:
+                future = self._pending_pongs[pong_id]
+                if not future.done():
+                    future.set_result(True)
+            elif not pong_id:
+                # 旧版本不回 id：只在一个探活等待时按兼容路径完成它。
+                for future in self._pending_pongs.values():
+                    if not future.done():
+                        future.set_result(True)
             return
         if mtype == "hello":
             self.peer_info = dict(msg)
@@ -583,7 +638,7 @@ class QuickSwitch:
     async def _send_ack(self, msg: Dict[str, Any], *, ok: bool, detail: str) -> None:
         if self.peer is None or not msg.get("id"):
             return
-        await self.peer.send(
+        await self._send_message(
             {
                 "type": "switch_ack",
                 "id": msg.get("id"),
@@ -1232,6 +1287,14 @@ class QuickSwitchApp:
 
     def _setup_macos_hotkeys(self) -> None:
         """macOS 不依赖 keyboard 库，直接注册 Carbon 全局热键。"""
+        # Carbon 的 GetApplicationEventTarget() 依赖 NSApplication 已经初始化。
+        # 在托盘创建前注册时，事件目标可能还没有建立，热键看起来注册成功却收不到。
+        try:
+            from AppKit import NSApplication
+
+            NSApplication.sharedApplication()
+        except Exception as exc:
+            log.debug("初始化 macOS NSApplication 失败：%s", exc)
         manager = mac_hotkeys.MacHotkeyManager()
         hotkeys = self.cfg.get("hotkeys") or {}
         registered: List[str] = []
@@ -1367,6 +1430,10 @@ class QuickSwitchApp:
         )
         menu = pystray.Menu(*menu_items)
         self.icon = pystray.Icon("QuickSwitch", tray_image(), "QuickSwitch", menu)
+        if self.platform == "Darwin":
+            # pystray 在 Icon 初始化时才创建 NSApplication；此时重新注册，
+            # 确保 Carbon 热键挂到真正运行的事件循环上。
+            self._setup_hotkeys()
         log.info("托盘图标已启动（右键菜单可切换、打开设置窗口）")
         self.icon.run()
         self.icon = None
