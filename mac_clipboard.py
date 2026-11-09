@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 from PIL import Image
 
@@ -82,9 +83,14 @@ def _file_url_to_path(value: Any) -> Optional[Path]:
     if not value:
         return None
     parsed = urlparse(str(value))
-    if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
+    if parsed.scheme != "file":
         return None
-    path = Path(unquote(parsed.path))
+    # file:///C:/... 在 Windows 上必须交给 url2pathname 转成 C:\...；
+    # 直接 Path(parsed.path) 会得到 /C:/...，文件永远不存在。
+    raw = unquote(parsed.path)
+    if parsed.netloc not in ("", "localhost"):
+        raw = f"//{parsed.netloc}{raw}"
+    path = Path(url2pathname(raw))
     return path if path.is_file() else None
 
 
