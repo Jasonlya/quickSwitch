@@ -193,6 +193,49 @@ class TwoNodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.ddc_server.calls, ["mac", "win"])
         self.assertIn("自动切回", self.server.last_notice)
 
+    async def test_goodbye_prevents_auto_recover(self) -> None:
+        self.server.cfg["safety"] = {
+            "require_target_online": True,
+            "revert_on_disconnect": True,
+            "probe_timeout": 0.2,
+            "liveness_interval": 0.1,
+            "offline_grace": 0.0,
+        }
+        self.assertTrue(await self.server.trigger("mac"))
+        await self.peer_client.send({"type": "goodbye", "reason": "shutdown"})
+        await asyncio.sleep(0.05)
+        await self.peer_client.stop()
+        await asyncio.sleep(0.9)
+        self.assertEqual(self.server.state, "mac")
+        self.assertEqual(self.ddc_server.calls, ["mac"])
+        self.assertTrue(self.server._peer_goodbye)
+
+    async def test_hello_clears_peer_goodbye(self) -> None:
+        await self.server.handle_message({"type": "goodbye"})
+        self.assertTrue(self.server._peer_goodbye)
+        await self.server.handle_message({"type": "hello", "name": "client-node"})
+        self.assertFalse(self.server._peer_goodbye)
+
+    async def test_goodbye_during_probe_prevents_auto_recover(self) -> None:
+        self.server.state = "mac"
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_probe(_timeout: float) -> bool:
+            started.set()
+            await release.wait()
+            return False
+
+        self.server._probe_peer = slow_probe
+        task = asyncio.create_task(self.server._liveness_loop())
+        await asyncio.wait_for(started.wait(), 1.0)
+        await self.server.handle_message({"type": "goodbye"})
+        release.set()
+        await asyncio.wait_for(task, 1.0)
+
+        self.assertEqual(self.server.state, "mac")
+        self.assertEqual(self.ddc_server.calls, [])
+
     async def test_local_switch_is_not_blocked_by_slow_peer_ack(self) -> None:
         async def slow_peer(_target: str) -> bool:
             await asyncio.sleep(2.0)

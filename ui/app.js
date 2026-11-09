@@ -1049,7 +1049,7 @@ const CONFIG_FIELDS = [
     { path: "safety.require_target_online", type: "checkbox", label: "目标端离线时禁止切换",
       hint: "切换前先确认对端 QuickSwitch 仍有响应，避免把显示器切到已睡眠或关机的电脑。" },
     { path: "safety.revert_on_disconnect", type: "checkbox", label: "对端失联时自动切回本机",
-      hint: "已经切到对端后，如果对端睡眠/关机，自动把显示器切回本机，避免黑屏。" },
+      hint: "默认关闭。开启后仅在对端异常失联时回切；正常退出 QuickSwitch 会发送 goodbye，不会触发。" },
     { path: "safety.probe_timeout", type: "number", min: 0.2, max: 10, step: 0.1 },
     { path: "safety.liveness_interval", type: "number", min: 0.5, max: 30, step: 0.5 },
     { path: "safety.offline_grace", type: "number", min: 0, max: 120, step: 0.5,

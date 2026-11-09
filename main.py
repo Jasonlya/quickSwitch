@@ -54,7 +54,7 @@ from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 from wol import local_mac_addresses, parse_macs, send_magic_packet
 
-VERSION = "2.2.2"
+VERSION = "2.2.3"
 TARGETS = ("mac", "win")
 
 
@@ -192,6 +192,7 @@ class QuickSwitch:
         self._peer_wake_macs: List[str] = []
         self._last_pong = 0.0
         self._pending_pongs: Dict[str, asyncio.Future] = {}
+        self._peer_goodbye = False
         self._liveness_task: Optional[asyncio.Task] = None
         self.last_error = ""
         self.last_notice = ""
@@ -454,7 +455,7 @@ class QuickSwitch:
 
     def _ensure_liveness_guard(self) -> None:
         safety = self.cfg.get("safety") or {}
-        if self.dry_run or not bool(safety.get("revert_on_disconnect", True)):
+        if self.dry_run or not bool(safety.get("revert_on_disconnect", False)):
             return
         task = self._liveness_task
         if task is not None and not task.done():
@@ -480,6 +481,9 @@ class QuickSwitch:
         while True:
             await asyncio.sleep(0.5 if first else interval)
             first = False
+            if self._peer_goodbye:
+                log.info("对端已主动退出 QuickSwitch，跳过自动回切")
+                return
             if self.state != self.remote_target:
                 return
             if self.switching:
@@ -489,6 +493,9 @@ class QuickSwitch:
                     log.info("对端恢复响应，取消自动回切")
                 offline_since = None
                 continue
+            if self._peer_goodbye:
+                log.info("对端已主动退出 QuickSwitch，跳过自动回切")
+                return
             if offline_since is None:
                 offline_since = time.monotonic()
                 log.warning(
@@ -497,6 +504,9 @@ class QuickSwitch:
                 )
             if time.monotonic() - offline_since < grace:
                 continue
+            if self._peer_goodbye:
+                log.info("对端已主动退出 QuickSwitch，跳过自动回切")
+                return
             log.warning("%s 已失联，自动切回本机", LABEL[self.remote_target])
             ok = await self.trigger(self.local_target, source="auto-recover")
             if ok:
@@ -586,6 +596,10 @@ class QuickSwitch:
     # ---------------------------------------------------------------- 消息处理
     async def handle_message(self, msg: Dict[str, Any]) -> None:
         mtype = msg.get("type")
+        if mtype == "goodbye":
+            self._peer_goodbye = True
+            log.info("对端正在退出 QuickSwitch，跳过失联自动回切")
+            return
         if mtype == "ping":
             if self.peer is not None:
                 reply = {"type": "pong", "ts": msg.get("ts")}
@@ -607,6 +621,7 @@ class QuickSwitch:
                         future.set_result(True)
             return
         if mtype == "hello":
+            self._peer_goodbye = False
             self.peer_info = dict(msg)
             self.set_peer_wake_macs(msg.get("wake_macs"))
             log.info(
@@ -1049,6 +1064,12 @@ class QuickSwitchApp:
             await asyncio.gather(*pending, return_exceptions=True)
         if self.discovery is not None:
             await self.discovery.stop()
+        with contextlib.suppress(Exception):
+            sent = await self.peer.send_all(
+                {"type": "goodbye", "name": self.quick.name, "reason": "shutdown"}
+            )
+            if sent:
+                await asyncio.sleep(0.1)
         await self.peer.stop()
 
     def shutdown(self) -> None:

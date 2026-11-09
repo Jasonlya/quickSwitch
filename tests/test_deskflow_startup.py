@@ -147,6 +147,22 @@ class DeskflowStartupTests(unittest.TestCase):
         app.quick.trigger.assert_awaited_once_with("win", source="startup-recovery")
         self.assertIn("已自动切回", app.quick.last_notice)
 
+    def test_shutdown_sends_goodbye_before_stopping_peer(self) -> None:
+        app = make_app(True)
+        app._startup_recovery_task = None
+        app.discovery = None
+        app.quick.cancel_background_tasks.return_value = []
+        app.peer.send_all = mock.AsyncMock(return_value=1)
+        app.peer.stop = mock.AsyncMock()
+        app.quick.name = "mac-client"
+
+        asyncio.run(QuickSwitchApp._shutdown_async(app))
+
+        app.peer.send_all.assert_awaited_once_with(
+            {"type": "goodbye", "name": "mac-client", "reason": "shutdown"}
+        )
+        app.peer.stop.assert_awaited_once()
+
     def test_discovered_server_restarts_client_core(self) -> None:
         app = make_app(True, role="client", peer_host="auto")
         with mock.patch("main.threading.Thread") as thread_class:

@@ -86,10 +86,10 @@ DEFAULTS: Dict[str, Any] = {
     },
     "safety": {
         "require_target_online": True,  # 目标端不在线时禁止切过去，避免显示器黑屏
-        "revert_on_disconnect": True,   # 已经切到对端后对端睡眠/关机，自动切回本机
+        "revert_on_disconnect": False,  # 默认关闭；开启后对端异常失联才自动切回本机
         "probe_timeout": 1.5,           # 切换前 ping 对端的等待时间
         "liveness_interval": 2.5,       # 切到对端后检查其是否仍在线的间隔
-        "offline_grace": 5.0,           # 连续失联多久后自动回切
+        "offline_grace": 5.0,           # 启用自动回切时，连续失联多久后切回
         "startup_recovery": True,       # 启动时若显示器停在对端输入，自动切回本机
         "startup_grace": 8.0,           # 启动后等待多久再执行上述恢复
     },

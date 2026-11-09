@@ -59,6 +59,7 @@ class ConfigTests(unittest.TestCase):
         cfg["wake"]["mac"] = ["aa-bb-cc-dd-ee-ff"]
         config_module.validate(cfg)
         self.assertTrue(cfg["safety"]["require_target_online"])
+        self.assertFalse(cfg["safety"]["revert_on_disconnect"])
         self.assertFalse(cfg["wake"]["enabled"])
 
     def test_invalid_safety_value_is_rejected(self) -> None:
