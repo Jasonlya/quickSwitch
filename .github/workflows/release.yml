@@ -210,6 +210,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: 合并测试日志
+        run: |
+          : > artifacts/unit-tests.log
+          for dir in artifacts/test-logs-*; do
+            [ -d "$dir" ] || continue
+            echo "===== $(basename "$dir") =====" >> artifacts/unit-tests.log
+            cat "$dir/unit-tests.log" >> artifacts/unit-tests.log
+          done
+          # 两个平台各有一份同名日志，直接上传会争用同一个 Release 资产。
+          rm -rf artifacts/test-logs-*
       - name: 生成 SHA256 校验文件
         run: |
           cd artifacts
