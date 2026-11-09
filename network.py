@@ -195,6 +195,7 @@ class PeerConnection:
         self._peer_info: Dict[str, Any] = {}
         self._peer_auth: Optional[str] = None
         self._authenticated = False
+        self._wake_event: Optional[asyncio.Event] = None
 
     # ---------------------------------------------------------------- 状态
     @property
@@ -249,6 +250,7 @@ class PeerConnection:
         if self._running:
             return self
         self._running = True
+        self._wake_event = asyncio.Event()
         try:
             self._server = await asyncio.start_server(self._handle_inbound, "0.0.0.0", self.listen_port)
         except OSError:
@@ -295,6 +297,33 @@ class PeerConnection:
         self.host = host
         if self.connected:
             asyncio.ensure_future(self._reconnect_now())
+        self.request_reconnect(force=False)
+
+    def request_reconnect(self, *, force: bool = True) -> None:
+        """Wake the reconnect backoff, optionally dropping the current sockets.
+
+        Wake-on-LAN needs a connection attempt immediately after the magic
+        packet is sent; waiting up to ``reconnect_max_interval`` would make the
+        wake-up look broken even when the network is already back.
+        """
+        event = self._wake_event
+        if event is not None:
+            event.set()
+        if force:
+            self._drop_writer(self._writer)
+            self._drop_writer(self._inbound)
+
+    async def _sleep_or_wake(self, delay: float) -> None:
+        event = self._wake_event
+        if event is None:
+            await asyncio.sleep(delay)
+            return
+        try:
+            await asyncio.wait_for(event.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            event.clear()
 
     async def _reconnect_now(self) -> None:
         self._drop_writer(self._writer)
@@ -341,7 +370,7 @@ class PeerConnection:
                 raise
             except Exception as exc:
                 log.debug("连接 %s:%s 失败：%s，%.1fs 后重试", host, self.port, exc, backoff)
-                await asyncio.sleep(backoff)
+                await self._sleep_or_wake(backoff)
                 backoff = min(backoff * 2, self.reconnect_max_interval)
                 continue
 
@@ -364,7 +393,7 @@ class PeerConnection:
                 log.info("与 %s:%s 的连接已断开，%.1fs 后重连", host, self.port, self.reconnect_interval)
                 self._emit("disconnected", host=host, port=self.port)
             if self._running:
-                await asyncio.sleep(self.reconnect_interval)
+                await self._sleep_or_wake(self.reconnect_interval)
 
     async def _ping_loop(self) -> None:
         while self._running:

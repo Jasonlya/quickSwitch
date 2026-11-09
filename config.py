@@ -84,6 +84,23 @@ DEFAULTS: Dict[str, Any] = {
         "reconnect_max_interval": 30.0,
         "connect_wait": 4.0,          # --once 模式等待对端连接的时间
     },
+    "safety": {
+        "require_target_online": True,  # 目标端不在线时禁止切过去，避免显示器黑屏
+        "revert_on_disconnect": True,   # 已经切到对端后对端睡眠/关机，自动切回本机
+        "probe_timeout": 1.5,           # 切换前 ping 对端的等待时间
+        "liveness_interval": 2.5,       # 切到对端后检查其是否仍在线的间隔
+        "offline_grace": 5.0,           # 连续失联多久后自动回切
+        "startup_recovery": True,       # 启动时若显示器停在对端输入，自动切回本机
+        "startup_grace": 8.0,           # 启动后等待多久再执行上述恢复
+    },
+    "wake": {
+        "enabled": False,               # 启用 Wake-on-LAN（网卡/BIOS 也必须允许网络唤醒）
+        "mac": "",                      # 目标机 MAC；留空则使用对端自动上报的网卡地址
+        "broadcast": "",                # 额外广播地址；留空自动使用 255.255.255.255 和本网段广播
+        "port": 9,                      # WoL UDP 端口，常见为 9 或 7
+        "wait": 20.0,                   # 发送魔包后等待对端 QuickSwitch 重新上线的上限
+        "settle": 2.0,                  # 对端上线后、切换显示器前的稳定等待
+    },
     "discovery": {
         "enabled": False,             # peer_host 为 "auto" 时自动启用
         "port": 8766,
@@ -279,6 +296,50 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
         value = cfg.get(field)
         if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 65535:
             raise ConfigError(f"{field} 必须是 1-65535 之间的整数，当前为 {value!r}")
+
+    safety = cfg.get("safety")
+    if not isinstance(safety, dict):
+        raise ConfigError("safety 必须是 JSON 对象")
+    for field in ("require_target_online", "revert_on_disconnect", "startup_recovery"):
+        value = safety.get(field)
+        if not isinstance(value, bool):
+            raise ConfigError(f"safety.{field} 必须是布尔值，当前为 {value!r}")
+    for field, minimum, maximum in (
+        ("probe_timeout", 0.2, 10.0),
+        ("liveness_interval", 0.5, 30.0),
+        ("offline_grace", 0.0, 120.0),
+        ("startup_grace", 0.0, 120.0),
+    ):
+        value = safety.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not minimum <= value <= maximum:
+            raise ConfigError(
+                f"safety.{field} 必须是 {minimum}-{maximum} 之间的数字，当前为 {value!r}"
+            )
+
+    wake = cfg.get("wake")
+    if not isinstance(wake, dict):
+        raise ConfigError("wake 必须是 JSON 对象")
+    wake_enabled = wake.get("enabled")
+    if not isinstance(wake_enabled, bool):
+        raise ConfigError(f"wake.enabled 必须是布尔值，当前为 {wake_enabled!r}")
+    wake_mac = wake.get("mac", "")
+    if not isinstance(wake_mac, (str, list, tuple)):
+        raise ConfigError("wake.mac 必须是字符串或字符串数组")
+    from wol import parse_macs
+    if wake_mac and not parse_macs(wake_mac):
+        raise ConfigError(f"wake.mac 中没有有效的 MAC 地址：{wake_mac!r}")
+    wake_broadcast = wake.get("broadcast", "")
+    if not isinstance(wake_broadcast, (str, list, tuple)):
+        raise ConfigError("wake.broadcast 必须是字符串或字符串数组")
+    wake_port = wake.get("port", 9)
+    if isinstance(wake_port, bool) or not isinstance(wake_port, int) or not 1 <= wake_port <= 65535:
+        raise ConfigError(f"wake.port 必须是 1-65535 之间的整数，当前为 {wake_port!r}")
+    for field, minimum, maximum in (("wait", 1.0, 180.0), ("settle", 0.0, 30.0)):
+        value = wake.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not minimum <= value <= maximum:
+            raise ConfigError(
+                f"wake.{field} 必须是 {minimum}-{maximum} 之间的数字，当前为 {value!r}"
+            )
 
     ddc = cfg.get("ddc")
     if not isinstance(ddc, dict):

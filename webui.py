@@ -70,6 +70,23 @@ EDITABLE: Dict[str, Any] = {
     "hotkeys": {"switch_to_mac": None, "switch_to_win": None},
     "network": {"ack_timeout": None, "ping_interval": None, "reconnect_interval": None,
                 "reconnect_max_interval": None, "connect_wait": None},
+    "safety": {
+        "require_target_online": None,
+        "revert_on_disconnect": None,
+        "probe_timeout": None,
+        "liveness_interval": None,
+        "offline_grace": None,
+        "startup_recovery": None,
+        "startup_grace": None,
+    },
+    "wake": {
+        "enabled": None,
+        "mac": None,
+        "broadcast": None,
+        "port": None,
+        "wait": None,
+        "settle": None,
+    },
     "discovery": {"enabled": None, "port": None, "interval": None, "ttl": None, "broadcast": None},
     "auth": {"secret": None},
     "deskflow": {
@@ -105,6 +122,8 @@ IMMEDIATE_PREFIXES = (
     "ddc.",
     "debounce",
     "network.",
+    "safety.",
+    "wake.",
     "log_level",
     "hotkeys.",
     "deskflow.",
@@ -313,6 +332,10 @@ class WebConsole:
             },
             "role": cfg.get("role"),
             "state": quick.state,
+            "local_target": quick.local_target,
+            "remote_target": quick.remote_target,
+            "last_error": quick.last_error,
+            "last_notice": quick.last_notice,
             "switching": bool(quick.switching),
             "switch_target": quick.switch_target,
             "dry_run": bool(app.dry_run),
@@ -372,10 +395,19 @@ class WebConsole:
     def do_switch(self, target: str) -> Dict[str, Any]:
         future = self.app.trigger(target, "web")
         timeout = float((self.app.cfg.get("network") or {}).get("ack_timeout", 4.0)) + 8.0
+        wake = self.app.cfg.get("wake") or {}
+        if bool(wake.get("enabled", False)) and target == self.app.quick.remote_target:
+            timeout += float(wake.get("wait", 20.0)) + float(wake.get("settle", 2.0))
         ok = future.result(timeout=timeout)
         # 切换后异步回读真实输入源，避免在请求里阻塞
         self.app.refresh_input_async()
-        return {"ok": bool(ok), "target": target, "state": self.app.quick.state}
+        return {
+            "ok": bool(ok),
+            "target": target,
+            "state": self.app.quick.state,
+            "error": self.app.quick.last_error,
+            "notice": self.app.quick.last_notice,
+        }
 
     def read_input(self) -> Dict[str, Any]:
         """同步读取当前输入源（阻塞在 DDC 命令上，最长 ddc.timeout）。"""

@@ -106,6 +106,15 @@ class PeerConnectionEdgeCases(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await peer.send({"type": "ping"}))
         self.assertFalse(await peer.wait_connected(0.3))
 
+    async def test_request_reconnect_interrupts_backoff_sleep(self) -> None:
+        peer = PeerConnection("127.0.0.1", free_port(), free_port(), recorder([]), name="solo")
+        await peer.start()
+        self.addAsyncCleanup(peer.stop)
+        wait_task = asyncio.create_task(peer._sleep_or_wake(10.0))
+        await asyncio.sleep(0.05)
+        peer.request_reconnect(force=False)
+        self.assertTrue(await wait_for(wait_task.done, 0.5))
+
     async def test_listen_port_conflict_raises_oserror(self) -> None:
         port = free_port()
         first = PeerConnection("127.0.0.1", free_port(), port, recorder([]), name="first")

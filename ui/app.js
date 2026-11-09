@@ -688,6 +688,11 @@ function renderOwnership(status) {
   const state = $("ownershipState");
   if (pendingTarget) {
     state.textContent = "切换中：正在切到 " + LABEL[pendingTarget] + "（本机立即切换，对端后台确认）";
+  } else if (status.last_error) {
+    state.textContent = "⚠ " + status.last_error +
+      (owner ? " ｜ 当前仍为：" + LABEL[owner] : "");
+  } else if (status.last_notice) {
+    state.textContent = status.last_notice + " ｜ 当前持有：" + (LABEL[owner] || "未知");
   } else if (owner) {
     state.textContent =
       "当前持有：" + LABEL[owner] + " ｜ 显示器输入源 " + text(input.value) +
@@ -910,9 +915,11 @@ async function switchTo(target) {
   busy(true, "切换中：→ " + LABEL[target] + " …", "runState");
   try {
     const result = await api("/api/switch", { method: "POST", body: { target } });
+    const failure = result.error || ("未确认：→ " + LABEL[target] + "，详见事件日志");
     busy(false, result.ok
-      ? "已完成：→ " + LABEL[target] + "（本机 DDC 或对端 DDC 至少一侧确认成功）"
-      : "未确认：→ " + LABEL[target] + "，详见事件日志", "runState");
+      ? (result.notice || "已完成：→ " + LABEL[target] + "（本机 DDC 或对端 DDC 至少一侧确认成功）")
+      : failure, "runState");
+    if (!result.ok) notify(failure, "error");
   } catch (error) {
     busy(false, "切换失败：" + error.message, "runState");
     notify(String(error.message), "error");
@@ -1041,6 +1048,31 @@ const CONFIG_FIELDS = [
     { path: "network.reconnect_interval", type: "number", min: 0.1, step: 0.5 },
     { path: "network.reconnect_max_interval", type: "number", min: 0.1, step: 0.5 },
     { path: "network.connect_wait", type: "number", min: 0.1, step: 0.5 },
+  ] },
+  { group: "睡眠 / 离线保护", fields: [
+    { path: "safety.require_target_online", type: "checkbox", label: "目标端离线时禁止切换",
+      hint: "切换前先确认对端 QuickSwitch 仍有响应，避免把显示器切到已睡眠或关机的电脑。" },
+    { path: "safety.revert_on_disconnect", type: "checkbox", label: "对端失联时自动切回本机",
+      hint: "已经切到对端后，如果对端睡眠/关机，自动把显示器切回本机，避免黑屏。" },
+    { path: "safety.probe_timeout", type: "number", min: 0.2, max: 10, step: 0.1 },
+    { path: "safety.liveness_interval", type: "number", min: 0.5, max: 30, step: 0.5 },
+    { path: "safety.offline_grace", type: "number", min: 0, max: 120, step: 0.5,
+      label: "失联多久后回切（秒）" },
+    { path: "safety.startup_recovery", type: "checkbox", label: "启动时恢复本机输入",
+      hint: "启动时若显示器仍停在上次使用、但当前未连接的对端输入，自动切回本机。" },
+    { path: "safety.startup_grace", type: "number", min: 0, max: 120, step: 0.5 },
+  ] },
+  { group: "网络唤醒（WoL）", fields: [
+    { path: "wake.enabled", type: "checkbox", label: "允许网络唤醒对端",
+      hint: "目标机网卡和 BIOS 需允许 Wake-on-LAN；Apple Silicon 合盖睡眠、Windows 快速启动或路由器不转发广播时可能无效。" },
+    { path: "wake.mac", type: "text", label: "目标机 MAC（可选）",
+      hint: "留空时使用对端自动上报的网卡地址；多网卡或自动值无效时手工填写。" },
+    { path: "wake.broadcast", type: "text", label: "广播地址（可选）" },
+    { path: "wake.port", type: "number", min: 1, max: 65535 },
+    { path: "wake.wait", type: "number", min: 1, max: 180, step: 1,
+      label: "唤醒后等待上线（秒）" },
+    { path: "wake.settle", type: "number", min: 0, max: 30, step: 0.5,
+      label: "上线后再等待（秒）" },
   ] },
   { group: "自动发现", fields: [
     { path: "discovery.enabled", type: "checkbox" },

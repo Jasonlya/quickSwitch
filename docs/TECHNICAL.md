@@ -56,6 +56,7 @@ Windows 端是 `server`（注册热键），macOS 端是 `client`（只接收 TC
 | 14 | — | Web 控制台只允许改白名单字段，且只监听回环地址 + 随机令牌 + Host/Origin 校验 | 一个能切换显示器、能写配置的本地端口，等价于本机代码执行入口，不能裸奔 |
 | 15 | 网络只靠 TCP 通知，没有鉴权 | 可选预共享密钥 + 每连接随机 nonce 的 HMAC 质询-响应；未通过校验前丢弃 `switch` / `switch_ack` | 方案默认「同网段即可信」：局域网里任何机器只要往 8765 发一行 JSON 就能切走显示器。密钥不上网、旧连接的校验码不能重放 |
 | 16 | — | `packaging/`：PyInstaller 打包 + Windows Authenticode 签名 / macOS 签名 + 公证 + 装订 | 方案把它当「Python 客户端」部署，但目标机装 Python、装依赖、配权限对普通用户太贵。详见 §7 |
+| 17 | — | 睡眠 / 关机保护：切换前 ping 探测目标端，离线则拒绝切换；切到远端后持续探活，超时自动切回本机；可选 Wake-on-LAN | DDC 只负责把显示器切到某路输入，不知道那台电脑是否还活着。旧逻辑在 Mac 睡眠或 Windows 关机时仍会切过去，直接造成黑屏和键鼠失联 |
 
 ## 3. 目录结构
 
@@ -83,7 +84,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（2.1.0.0）
+    version_info.txt        Windows exe 的版本资源（2.2.0.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   THIRD_PARTY_NOTICES.md Deskflow 版本、GPL-2.0、源码与校验信息
@@ -231,6 +232,23 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以内置核心能收到
     "reconnect_max_interval": 30.0,
     "connect_wait": 4.0
   },
+  "safety": {
+    "require_target_online": true,
+    "revert_on_disconnect": true,
+    "probe_timeout": 1.5,
+    "liveness_interval": 2.5,
+    "offline_grace": 5.0,
+    "startup_recovery": true,
+    "startup_grace": 8.0
+  },
+  "wake": {
+    "enabled": false,
+    "mac": "",
+    "broadcast": "",
+    "port": 9,
+    "wait": 20.0,
+    "settle": 2.0
+  },
   "discovery": {
     "enabled": false,
     "port": 8766,
@@ -273,6 +291,15 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以内置核心能收到
 | `deskflow.clipboard_size` | 单次剪贴板内容上限，单位 MiB，默认 `16`，范围 `1-128`；客户端沿用服务端值 |
 | `deskflow.path` | 高级选项：强制指定 Deskflow.app / deskflow-core 路径；留空自动使用安装包内置核心 |
 | `network.ack_timeout` | 等待对端切换确认的超时 |
+| `safety.require_target_online` | 切换前确认目标端 QuickSwitch 有响应；默认 `true`，离线时保留当前输入，避免黑屏 |
+| `safety.revert_on_disconnect` | 已切到远端后持续探活；对端睡眠/关机并持续失联超过 `offline_grace` 时自动切回本机，默认 `true` |
+| `safety.probe_timeout` / `safety.liveness_interval` | 单次探活超时 / 切到远端后的探活间隔（秒） |
+| `safety.offline_grace` | 连续失联多久后自动回切，默认 `5` 秒；设 `0` 则首次失联就回切 |
+| `safety.startup_recovery` / `safety.startup_grace` | 启动时若显示器停在上次使用但当前离线的对端输入，等待指定秒数后自动切回本机 |
+| `wake.enabled` | 是否在目标离线时发送 Wake-on-LAN 魔包；默认 `false` |
+| `wake.mac` | 目标机 MAC，可写字符串或数组；留空时使用对端自动上报的物理网卡地址 |
+| `wake.broadcast` / `wake.port` | 额外广播地址 / WoL UDP 端口，默认自动使用 `255.255.255.255`、本网段广播和端口 `9` |
+| `wake.wait` / `wake.settle` | 魔包发出后等待对端 QuickSwitch 重新上线的上限 / 上线后再等待多久才切显示器 |
 | `discovery.broadcast` | 广播地址，可写数组；留空则只用「按本机网段推导的 x.y.z.255」 |
 | `web.enabled` | 是否启动本地 Web 控制台（默认开；也可用 `--no-web` 临时关闭） |
 | `web.host` / `web.port` | 控制台监听地址与端口，默认 `127.0.0.1:8767`；改成非回环地址会有告警 |
@@ -407,7 +434,7 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe` + NSIS 安装包（自带 Python 运行时、`ui/` 和 `deskflow\` 便携版） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` + `installer.nsi` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`、WKWebView 桥接依赖和嵌套 `Deskflow.app`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.1.0`）用于运行时与 macOS
+两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.2.0`）用于运行时与 macOS
 `CFBundleShortVersionString`；Windows 的 `packaging/version_info.txt` 是静态版本资源，发布时需要同步更新。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
@@ -442,7 +469,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-2.1.0.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-2.2.0.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -494,7 +521,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 ```bash
 python3 packaging/fetch-deskflow.py --target macos-arm64
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-2.0.5-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-2.2.0-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
@@ -502,7 +529,7 @@ Windows 安装包在 Windows 构建机上生成：
 ```powershell
 python packaging\fetch-deskflow.py --target windows-x64
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis -INPUTCHARSET UTF8 /DVERSION=2.1.0 packaging\installer.nsi
+makensis -INPUTCHARSET UTF8 /DVERSION=2.2.0 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后先在 macOS/Windows
@@ -514,8 +541,8 @@ macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v2.1.0
-git push origin v2.1.0
+git tag v2.2.0
+git push origin v2.2.0
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -560,8 +587,9 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v2.1.0` 增加双向剪贴板共享、自定义切换热键，并修复从 Mac 切回 Windows 时远端确认阻塞热键的问题；继续保留稳定的 macOS Ad-hoc 授权与内置官方 Deskflow 无界面核心。macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v2.2.0` 增加睡眠 / 关机保护与可选网络唤醒，避免 Mac 睡眠或 Windows 未开机时把显示器切到无信号输入；继续保留稳定的 macOS Ad-hoc 授权与内置官方 Deskflow 无界面核心。macOS 安装包仅提供 Apple Silicon（arm64）。
 
+- **v2.2.0**：新增睡眠 / 关机保护。切换前先探测目标端，目标离线时保留当前输入并提示，不再把显示器切到黑屏；切到远端后持续探活，失联超过宽限期自动切回本机；启动时若显示器仍停在上次使用但已离线的对端输入，也会自动恢复。新增可选 Wake-on-LAN：优先使用配置里的 `wake.mac`，否则使用发现/握手时对端上报的 MAC，发送魔包并等待 QuickSwitch 重新上线后再切 DDC。网络层增加可即时打断退避等待的重连信号，发现包和 hello 携带 `wake_macs`。Web 状态与设置页新增 `last_error` / `last_notice` 以及「睡眠 / 离线保护」「网络唤醒（WoL）」配置。新增 WoL、探活、断线回切、启动恢复与网络重连测试，共 251 项测试通过。
 - **v2.1.0**：键鼠共享新增双向剪贴板，支持文本、HTML 和图片，默认上限 `16 MiB`，可在设置页开关并调整到 `1-128 MiB`；客户端沿用 Windows 服务端配置。热键改为可视化录制，支持格式与重复校验、Esc 取消、恢复默认；保存时会先注销旧全局钩子再注册新组合键，修复修改后旧热键残留/新热键失效。切换链路改为本机 DDC 与远端确认并行执行，本机成功后 `0.35s` 内未确认即转后台，不再让 macOS 端 `m1ddc` 的重试阻塞下一次热键；新切换会取消上一笔未完成的后台确认。新增剪贴板配置、热键规范化、旧钩子清理和慢对端切换回归测试，共 240 项测试通过。
 - **v2.0.5**：修复 macOS 每次授予辅助功能/输入监控后仍提示「需要权限」。旧版 Ad-hoc 签名的 designated requirement 绑定 cdhash，升级后 TCC 记录与新 App 不匹配；新版在 Ad-hoc 签名时显式写入稳定的 `identifier "io.quickswitch.agent"`，后续版本不再因重新打包丢失授权。设置页和托盘新增「重建 macOS 授权」，通过 `tccutil reset` 清除旧记录并重启 App；命令行可用 `--reset-macos-permissions`。新增对应回归测试。
 - **v2.0.4**：macOS 客户端默认关闭 Deskflow 的 `languageSync`，保留 Mac 自己的当前输入源，避免 Windows 布局在 Mac 上缺失时键位错乱；该选项仍可在设置页手动开启。Mac 主界面不再把未在本机注册的热键误标为可用热键，而是明确标注为「Windows 键盘」。Windows NSIS 安装器改用带 BOM 的 UTF-8 脚本并通过 `-INPUTCHARSET UTF8` 编译，修复安装过程与完成页中文乱码。新增配置校验、Deskflow 配置生成和安装器编码回归测试。
@@ -584,7 +612,7 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
   Windows 自动使用 `server` 角色。
 - **已验证（Windows 高 DPI 配置）**：Windows EXE manifest 声明 Per-Monitor V2，
   `settings_window.py` 在 WebView2 创建前提供运行时兜底；manifest 解析和专项测试通过。
-- **发布产物**：GitHub Actions 在 `v2.1.0` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **发布产物**：GitHub Actions 在 `v2.2.0` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；
@@ -730,6 +758,9 @@ python3 main.py --status          # 应显示「密钥校验：已通过（hmac-
 | macOS 提示应用「已损坏」 | `xattr -c /Applications/Deskflow.app`，并重新授予辅助功能权限 |
 | 在同一台机器上测试两端 | 用 `--config` 指定两份配置（不同 `listen_port`），或让 `peer_host` 明确指向 127.0.0.1 |
 | IP 经常变化 | 用 Tailscale，或 `"peer_host": "auto"`；若广播被阻断，把 `discovery.broadcast` 改成网段广播地址（如 `192.168.1.255`） |
+| 目标机睡眠/关机时热键不切换，日志说目标不可用 | 这是保护行为：避免把显示器切到无信号输入。先把目标机唤醒/开机并确认 QuickSwitch 已启动；确实需要强制切换时，把 `safety.require_target_online` 设为 `false` |
+| 切到 Mac 后 Mac 睡眠，屏幕黑屏 | 默认会在对端失联约 5 秒后自动切回本机；可在「睡眠 / 离线保护」里调小 `offline_grace`。若仍黑屏，用显示器按钮切回，并检查两端 8765 端口是否互通 |
+| 想从睡眠状态唤醒 Mac | 打开 `wake.enabled` 并确认目标机允许网络唤醒；Apple Silicon 合盖睡眠、路由器不转发广播、Windows 快速启动等场景可能无法唤醒。Windows 完全关机时通常不能依赖 WoL，应先开机 |
 
 ## 10. 通信协议
 

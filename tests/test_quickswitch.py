@@ -24,6 +24,7 @@ def base_cfg(**overrides: Any) -> Dict[str, Any]:
         "peer_port": 8765,
         "listen_port": 8765,
         "debounce": 0,
+        "safety": {"require_target_online": False, "revert_on_disconnect": False},
         "network": {"ping_interval": 30.0, "ack_timeout": 2.0, "reconnect_interval": 0.2,
                     "reconnect_max_interval": 0.5},
         "ddc": {"mac_input": 15, "win_input": 17, "timeout": 5.0, "retries": 0, "retry_delay": 0,
@@ -148,14 +149,45 @@ class TwoNodeTests(unittest.IsolatedAsyncioTestCase):
         self.client.handle_message = spy
         self.peer_client.on_message = spy
         # client 发 ping → server 收到后回 pong → client 侧观察到 pong
-        await self.peer_client.send({"type": "ping", "ts": 1})
+        await self.peer_client.send({"type": "ping", "ts": 1, "id": "probe-1"})
         self.assertTrue(await wait_for(lambda: bool(pongs)))
+        self.assertEqual(pongs[0].get("id"), "probe-1")
 
-    async def test_peer_disconnect_is_reported_not_fatal(self) -> None:
+    async def test_peer_disconnect_blocks_unsafe_switch(self) -> None:
+        self.server.cfg["safety"] = {
+            "require_target_online": True,
+            "revert_on_disconnect": False,
+            "probe_timeout": 0.2,
+        }
         await self.peer_client.stop()
-        # 对端已断开：本地仍应切换成功，只是没有远端确认
+        # 目标端不可用：拒绝把显示器切过去，避免黑屏
+        self.assertFalse(await self.server.trigger("mac"))
+        self.assertEqual(self.ddc_server.calls, [])
+        self.assertIn("不可用", self.server.last_error)
+
+    async def test_online_target_probe_allows_switch(self) -> None:
+        self.server.cfg["safety"] = {
+            "require_target_online": True,
+            "revert_on_disconnect": False,
+            "probe_timeout": 0.5,
+        }
         self.assertTrue(await self.server.trigger("mac"))
         self.assertEqual(self.ddc_server.calls, ["mac"])
+        self.assertEqual(self.ddc_client.calls, ["mac"])
+
+    async def test_liveness_guard_switches_back_when_peer_disappears(self) -> None:
+        self.server.cfg["safety"] = {
+            "require_target_online": True,
+            "revert_on_disconnect": True,
+            "probe_timeout": 0.2,
+            "liveness_interval": 0.1,
+            "offline_grace": 0.2,
+        }
+        self.assertTrue(await self.server.trigger("mac"))
+        await self.peer_client.stop()
+        self.assertTrue(await wait_for(lambda: self.server.state == "win", 3.0))
+        self.assertEqual(self.ddc_server.calls, ["mac", "win"])
+        self.assertIn("自动切回", self.server.last_notice)
 
     async def test_local_switch_is_not_blocked_by_slow_peer_ack(self) -> None:
         async def slow_peer(_target: str) -> bool:

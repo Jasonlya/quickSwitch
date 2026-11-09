@@ -36,13 +36,14 @@ def make_discovery(**kwargs: Any) -> PeerDiscovery:
 
 class PacketTests(unittest.TestCase):
     def test_roundtrip(self) -> None:
-        node = make_discovery()
+        node = make_discovery(wake_macs=["aa:bb:cc:dd:ee:ff"])
         payload = PeerDiscovery.parse_packet(node.build_packet())
         self.assertIsNotNone(payload)
         assert payload is not None
         self.assertEqual(payload["magic"], MAGIC)
         self.assertEqual(payload["name"], "node-a")
         self.assertEqual(payload["port"], 8765)
+        self.assertEqual(payload["wake_macs"], ["aa:bb:cc:dd:ee:ff"])
 
     def test_rejects_other_magic(self) -> None:
         data = json.dumps({"magic": "something-else", "name": "x", "port": 1}).encode()

@@ -57,6 +57,7 @@ class PeerDiscovery:
         interval: float = 5.0,
         ttl: float = 15.0,
         role: str = "server",
+        wake_macs: Optional[List[str]] = None,
         on_peer: Optional[PeerHook] = None,
         broadcast: Union[str, List[str]] = "255.255.255.255",
         infer_subnet_broadcast: bool = True,
@@ -67,6 +68,7 @@ class PeerDiscovery:
         self.interval = float(interval)
         self.ttl = float(ttl)
         self.role = role
+        self.wake_macs = list(wake_macs or [])
         self.on_peer = on_peer
         if isinstance(broadcast, (list, tuple)):
             self.broadcast = [str(item) for item in broadcast if item]
@@ -103,6 +105,7 @@ class PeerDiscovery:
             "name": self.name,
             "port": self.listen_port,
             "role": self.role,
+            "wake_macs": self.wake_macs,
             "ts": time.time(),
         }
         return json.dumps(payload, ensure_ascii=False).encode("utf-8")

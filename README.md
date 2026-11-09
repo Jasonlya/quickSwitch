@@ -22,6 +22,8 @@ macOS 版只支持 Apple Silicon，不提供 Intel Mac 安装包。安装包已�
 
 **键鼠共享核心也已内置。** QuickSwitch 会以无界面方式自动启动随包的 Deskflow 核心；Windows 和 macOS 都不需要安装、配置或打开 Deskflow 客户端。
 
+**睡眠 / 关机保护。** 切换前会先确认目标电脑仍在响应；目标已睡眠、关机或 QuickSwitch 未运行时，保留当前显示器输入并提示原因，不会把屏幕切到无信号输入。切过去后对端失联，也会自动切回本机。可在设置里启用 Wake-on-LAN 尝试唤醒目标机（受网卡、BIOS、Apple Silicon 睡眠方式和路由器广播设置限制）。
+
 > **当前安装包未签名。** macOS 首次打开若提示「无法验证开发者」，请右键 QuickSwitch →「打开」→ 再点「打开」；Windows 首次运行若出现 SmartScreen，请点「更多信息」→「仍要运行」。
 
 ## 使用前准备
@@ -60,8 +62,8 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v2.1.0
-git push origin v2.1.0
+git tag v2.2.0
+git push origin v2.2.0
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

@@ -50,8 +50,9 @@ from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
 from settings_window import SettingsWindow, run_settings_window
 from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
+from wol import local_mac_addresses, parse_macs, send_magic_packet
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 TARGETS = ("mac", "win")
 
 
@@ -138,6 +139,7 @@ def discovery_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "interval": float(cfg_disc.get("interval") or 5.0),
         "ttl": float(cfg_disc.get("ttl") or 15.0),
         "broadcast": cfg_disc.get("broadcast", "255.255.255.255"),
+        "wake_macs": local_mac_addresses(),
     }
 
 
@@ -182,10 +184,24 @@ class QuickSwitch:
         self._background_tasks: set[asyncio.Task] = set()
         self.switching = False
         self.switch_target: Optional[str] = None
+        role = str(cfg.get("role") or "server").lower()
+        self.local_target = "win" if role == "server" else "mac"
+        self.remote_target = "mac" if role == "server" else "win"
+        self._peer_wake_macs: List[str] = []
+        self._last_pong = 0.0
+        self._liveness_task: Optional[asyncio.Task] = None
+        self.last_error = ""
+        self.last_notice = ""
 
     # ---------------------------------------------------------------- 辅助
     def set_peer(self, peer: Optional[PeerConnection]) -> None:
         self.peer = peer
+
+    def set_peer_wake_macs(self, value: object) -> None:
+        macs = parse_macs(value)
+        if macs and macs != self._peer_wake_macs:
+            self._peer_wake_macs = macs
+            log.info("对端网络唤醒地址：%s", "、".join(macs))
 
     def identity(self) -> Dict[str, Any]:
         return {
@@ -194,6 +210,7 @@ class QuickSwitch:
             "version": VERSION,
             "platform": platform.system(),
             "listen_port": self.cfg.get("listen_port"),
+            "wake_macs": local_mac_addresses(),
         }
 
     def status_line(self) -> str:
@@ -229,20 +246,26 @@ class QuickSwitch:
     async def _do_switch(self, target: str, *, source: str, notify: bool) -> bool:
         started = time.monotonic()
         log.info("切换请求：→ %s（来源：%s）", LABEL[target], source)
+        self.last_error = ""
+        self.last_notice = ""
         self.switching = True
         self.switch_target = target
         self._cancel_remote_task()
 
-        local_task = asyncio.create_task(self._local_switch(target))
-        remote_task: Optional[asyncio.Task] = None
-        if notify and self.peer is not None and getattr(self.peer, "connected", False):
-            # 本机 DDC 和远端冗余切换并行执行。Windows 本地通常几十毫秒完成，
-            # 不再被 macOS 上可能失败并重试两秒的 m1ddc 拖住。
-            remote_task = asyncio.create_task(self._notify_peer(target))
-            self._remote_task = remote_task
-            remote_task.add_done_callback(self._clear_remote_task)
-
         try:
+            if not await self._ensure_target_ready(target, source=source):
+                log.warning("已取消切换：%s", self.last_error)
+                return False
+
+            local_task = asyncio.create_task(self._local_switch(target))
+            remote_task: Optional[asyncio.Task] = None
+            if notify and self.peer is not None and getattr(self.peer, "connected", False):
+                # 本机 DDC 和远端冗余切换并行执行。Windows 本地通常几十毫秒完成，
+                # 不再被 macOS 上可能失败并重试两秒的 m1ddc 拖住。
+                remote_task = asyncio.create_task(self._notify_peer(target))
+                self._remote_task = remote_task
+                remote_task.add_done_callback(self._clear_remote_task)
+
             local_ok = await local_task
             if local_ok:
                 self.state = target
@@ -253,6 +276,10 @@ class QuickSwitch:
                     LABEL[target], "成功" if local_ok else "失败",
                     (time.monotonic() - started) * 1000,
                 )
+                if local_ok:
+                    self.last_notice = f"已切换到 {LABEL[target]}"
+                else:
+                    self.last_error = f"切换失败：{LABEL[target]} 的显示器 DDC 未确认成功"
                 return local_ok
 
             if local_ok:
@@ -266,6 +293,7 @@ class QuickSwitch:
                         "对端确认转入后台，不阻塞后续热键",
                         LABEL[target], (time.monotonic() - started) * 1000,
                     )
+                    self.last_notice = f"已切换到 {LABEL[target]}"
                     return True
                 remote_ok = remote_task.result()
             else:
@@ -286,10 +314,150 @@ class QuickSwitch:
                     "成功" if remote_ok else "失败",
                     (time.monotonic() - started) * 1000,
                 )
-            return local_ok or remote_ok is True
+            ok = local_ok or remote_ok is True
+            if ok:
+                self.last_notice = f"已切换到 {LABEL[target]}"
+            else:
+                self.last_error = f"切换失败：本地和 {LABEL[target]} 均未确认显示器切换"
+            return ok
         finally:
             self.switching = False
             self.switch_target = None
+            if self.state == self.remote_target:
+                self._ensure_liveness_guard()
+
+    async def _ensure_target_ready(self, target: str, *, source: str) -> bool:
+        """Do not point the monitor at an input whose machine cannot drive it."""
+        if target == self.local_target or self.dry_run:
+            return True
+        safety = self.cfg.get("safety") or {}
+        if not bool(safety.get("require_target_online", True)):
+            return True
+        timeout = float(safety.get("probe_timeout", 1.5))
+        if await self._probe_peer(timeout):
+            return True
+
+        wake = self.cfg.get("wake") or {}
+        if bool(wake.get("enabled", False)) and await self._try_wake(target):
+            self.last_notice = f"已唤醒并连接到 {LABEL[target]}"
+            return True
+
+        self.last_error = (
+            f"{LABEL[target]} 当前不可用（可能已睡眠、关机或 QuickSwitch 未运行），"
+            "已取消切换以避免黑屏"
+        )
+        return False
+
+    async def _probe_peer(self, timeout: float) -> bool:
+        peer = self.peer
+        if peer is None or not getattr(peer, "connected", False):
+            return False
+        started = time.monotonic()
+        try:
+            sent = await asyncio.wait_for(
+                peer.send({"type": "ping", "ts": time.time(), "id": f"probe-{uuid.uuid4().hex[:8]}"}),
+                timeout=max(0.2, timeout),
+            )
+        except (asyncio.TimeoutError, OSError, ConnectionError):
+            return False
+        if not sent:
+            return False
+        deadline = started + timeout
+        while time.monotonic() < deadline:
+            if self._last_pong >= started:
+                return True
+            await asyncio.sleep(0.05)
+        return False
+
+    async def _try_wake(self, target: str) -> bool:
+        wake = self.cfg.get("wake") or {}
+        peer = self.peer
+        if peer is None:
+            return False
+        macs = (
+            parse_macs(wake.get("mac"))
+            or self._peer_wake_macs
+            or parse_macs(self.peer_info.get("wake_macs"))
+        )
+        if not macs:
+            self.last_error = (
+                f"无法唤醒 {LABEL[target]}：没有对端 MAC 地址，请在配置中设置 wake.mac"
+            )
+            log.warning(self.last_error)
+            return False
+        wait = float(wake.get("wait", 20.0))
+        settle = float(wake.get("settle", 2.0))
+        sent = send_magic_packet(
+            macs,
+            port=int(wake.get("port", 9)),
+            broadcast=wake.get("broadcast"),
+            host=peer.host,
+        )
+        if not sent:
+            self.last_error = f"唤醒 {LABEL[target]} 失败：Wake-on-LAN 魔包未能发出"
+            return False
+        log.info("等待 %s 从网络唤醒（最多 %.0fs）…", LABEL[target], wait)
+        peer.request_reconnect()
+        if not await peer.wait_connected(wait):
+            self.last_error = f"已发送唤醒包，但 {LABEL[target]} 在 {wait:.0f}s 内没有重新上线"
+            return False
+        if settle:
+            await asyncio.sleep(settle)
+        return await self._probe_peer(float((self.cfg.get("safety") or {}).get("probe_timeout", 1.5)))
+
+    def _ensure_liveness_guard(self) -> None:
+        safety = self.cfg.get("safety") or {}
+        if self.dry_run or not bool(safety.get("revert_on_disconnect", True)):
+            return
+        task = self._liveness_task
+        if task is not None and not task.done():
+            return
+        task = asyncio.create_task(self._liveness_loop())
+        self._liveness_task = task
+        self._background_tasks.add(task)
+
+        def done(completed: asyncio.Task) -> None:
+            self._background_tasks.discard(completed)
+            if self._liveness_task is completed:
+                self._liveness_task = None
+
+        task.add_done_callback(done)
+
+    async def _liveness_loop(self) -> None:
+        safety = self.cfg.get("safety") or {}
+        interval = float(safety.get("liveness_interval", 2.5))
+        timeout = float(safety.get("probe_timeout", 1.5))
+        grace = float(safety.get("offline_grace", 5.0))
+        offline_since: Optional[float] = None
+        first = True
+        while True:
+            await asyncio.sleep(0.5 if first else interval)
+            first = False
+            if self.state != self.remote_target:
+                return
+            if self.switching:
+                continue
+            if await self._probe_peer(timeout):
+                if offline_since is not None:
+                    log.info("对端恢复响应，取消自动回切")
+                offline_since = None
+                continue
+            if offline_since is None:
+                offline_since = time.monotonic()
+                log.warning(
+                    "检测到 %s 失联；若持续 %.0fs 将自动切回 %s，避免显示器停在无信号输入",
+                    LABEL[self.remote_target], grace, LABEL[self.local_target],
+                )
+            if time.monotonic() - offline_since < grace:
+                continue
+            log.warning("%s 已失联，自动切回本机", LABEL[self.remote_target])
+            ok = await self.trigger(self.local_target, source="auto-recover")
+            if ok:
+                self.last_notice = f"{LABEL[self.remote_target]} 已失联，已自动切回 {LABEL[self.local_target]}"
+                self.last_error = ""
+            else:
+                self.last_error = f"{LABEL[self.remote_target]} 已失联，但自动切回本机失败"
+            return
 
     def _watch_remote_task(self, task: asyncio.Task) -> None:
         async def watch() -> None:
@@ -373,12 +541,17 @@ class QuickSwitch:
         mtype = msg.get("type")
         if mtype == "ping":
             if self.peer is not None:
-                await self.peer.send({"type": "pong", "ts": msg.get("ts")})
+                reply = {"type": "pong", "ts": msg.get("ts")}
+                if msg.get("id"):
+                    reply["id"] = msg.get("id")
+                await self.peer.send(reply)
             return
         if mtype == "pong":
+            self._last_pong = time.monotonic()
             return
         if mtype == "hello":
             self.peer_info = dict(msg)
+            self.set_peer_wake_macs(msg.get("wake_macs"))
             log.info(
                 "对端信息：%s（role=%s，平台=%s，版本=%s）",
                 msg.get("name"),
@@ -511,6 +684,7 @@ class QuickSwitchApp:
         self._deskflow_checked_at = 0.0
         self._deskflow_lock = threading.RLock()
         self._permission_prompted = False
+        self._startup_recovery_task: Optional[asyncio.Task] = None
         configured_peer = str(cfg.get("peer_host") or "").strip()
         self._deskflow_peer_host = (
             "" if configured_peer.lower() in ("", "auto") else configured_peer
@@ -544,6 +718,9 @@ class QuickSwitchApp:
                 log.debug("收到对端消息：%s", msg)
 
     def _on_peer_found(self, peer: Dict[str, Any]) -> None:
+        quick = getattr(self, "quick", None)
+        if quick is not None:
+            quick.set_peer_wake_macs(peer.get("wake_macs"))
         self.peer.set_host(peer["host"], peer["port"])
         role = str(self.cfg.get("role") or "").lower()
         peer_role = str(peer.get("role") or "").lower()
@@ -769,8 +946,42 @@ class QuickSwitchApp:
                 self.discovery = None
         else:
             log.info("对端地址固定为 %s:%s", self.peer.host, self.peer.port)
+        self._schedule_startup_recovery()
+
+    def _schedule_startup_recovery(self) -> None:
+        safety = self.cfg.get("safety") or {}
+        if self.dry_run or not bool(safety.get("startup_recovery", True)):
+            return
+        self._startup_recovery_task = asyncio.create_task(self._startup_recovery())
+
+    async def _startup_recovery(self) -> None:
+        safety = self.cfg.get("safety") or {}
+        grace = float(safety.get("startup_grace", 8.0))
+        if grace:
+            await asyncio.sleep(grace)
+        if self._stopping or self.quick.state is not None or self.peer.connected:
+            return
+        cached = self.read_cache()
+        if cached.get("target") != self.quick.remote_target:
+            return
+        log.warning(
+            "启动时显示器仍停在上次使用的 %s 输入，但该端未连接；自动切回 %s",
+            LABEL[self.quick.remote_target], LABEL[self.quick.local_target],
+        )
+        ok = await self.quick.trigger(self.quick.local_target, source="startup-recovery")
+        if ok:
+            self.quick.last_notice = (
+                f"{LABEL[self.quick.remote_target]} 未连接，启动时已自动切回 "
+                f"{LABEL[self.quick.local_target]}"
+            )
+        else:
+            self.quick.last_error = "启动恢复失败：无法把显示器切回本机输入"
 
     async def _shutdown_async(self) -> None:
+        if self._startup_recovery_task is not None and not self._startup_recovery_task.done():
+            self._startup_recovery_task.cancel()
+            await asyncio.gather(self._startup_recovery_task, return_exceptions=True)
+        self._startup_recovery_task = None
         pending = self.quick.cancel_background_tasks()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)

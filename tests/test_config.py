@@ -54,6 +54,25 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg["hotkeys"]["switch_to_mac"], "ctrl+alt+1")
         self.assertEqual(cfg["listen_port"], 8765)
 
+    def test_safety_and_wake_defaults_validate(self) -> None:
+        cfg = config_module.default_config()
+        cfg["wake"]["mac"] = ["aa-bb-cc-dd-ee-ff"]
+        config_module.validate(cfg)
+        self.assertTrue(cfg["safety"]["require_target_online"])
+        self.assertFalse(cfg["wake"]["enabled"])
+
+    def test_invalid_safety_value_is_rejected(self) -> None:
+        cfg = config_module.default_config()
+        cfg["safety"]["offline_grace"] = -1
+        with self.assertRaises(config_module.ConfigError):
+            config_module.validate(cfg)
+
+    def test_invalid_wake_mac_is_rejected(self) -> None:
+        cfg = config_module.default_config()
+        cfg["wake"]["mac"] = "not-a-mac"
+        with self.assertRaises(config_module.ConfigError):
+            config_module.validate(cfg)
+
     def test_environment_override(self) -> None:
         with mock.patch.dict(os.environ, {"QUICKSWITCH_ROLE": "client"}):
             cfg = config_module.load_config()

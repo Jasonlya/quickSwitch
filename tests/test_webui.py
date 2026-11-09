@@ -255,8 +255,9 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(payload["config_path"], str(self.config_file))
         self.assertEqual(set(payload["values"]), {"role", "peer_host", "peer_port",
                                                   "listen_port", "debounce", "log_level",
-                                                  "setup", "hotkeys", "network", "discovery",
-                                                  "auth", "deskflow", "ddc"})
+                                                  "setup", "hotkeys", "network", "safety",
+                                                  "wake", "discovery", "auth", "deskflow",
+                                                  "ddc"})
         self.assertIn("role", payload["restart_prefixes"])
         self.assertIn("auth.", payload["restart_prefixes"])
         self.assertNotIn("deskflow.", payload["restart_prefixes"])
@@ -264,6 +265,8 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn("ddc.", payload["immediate_prefixes"])
         self.assertIn("deskflow.", payload["immediate_prefixes"])
         self.assertIn("hotkeys.", payload["immediate_prefixes"])
+        self.assertIn("safety.", payload["immediate_prefixes"])
+        self.assertIn("wake.", payload["immediate_prefixes"])
 
     def test_config_save_accepts_pre_shared_secret(self) -> None:
         secret = "two-machines-same-secret-2026"

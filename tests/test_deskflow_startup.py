@@ -1,6 +1,7 @@
 """QuickSwitch 自动启动/重启内置键鼠共享核心的行为测试。"""
 from __future__ import annotations
 
+import asyncio
 import threading
 import unittest
 import sys
@@ -37,6 +38,7 @@ def make_app(
     app._deskflow_lock = threading.RLock()
     app._deskflow_peer_host = "" if peer_host.lower() == "auto" else peer_host
     app.peer = mock.Mock()
+    app.quick = mock.Mock()
     return app
 
 
@@ -126,6 +128,22 @@ class DeskflowStartupTests(unittest.TestCase):
         starter.assert_called_once_with(
             app.cfg, system="Darwin", peer_host="192.168.1.20"
         )
+
+    def test_startup_recovery_switches_back_when_cached_remote_is_offline(self) -> None:
+        app = make_app(False)
+        app.cfg["safety"] = {"startup_recovery": True, "startup_grace": 0}
+        app._stopping = False
+        app.quick.state = None
+        app.quick.local_target = "win"
+        app.quick.remote_target = "mac"
+        app.quick.trigger = mock.AsyncMock(return_value=True)
+        app.peer.connected = False
+        app.read_cache = mock.Mock(return_value={"target": "mac"})
+
+        asyncio.run(QuickSwitchApp._startup_recovery(app))
+
+        app.quick.trigger.assert_awaited_once_with("win", source="startup-recovery")
+        self.assertIn("已自动切回", app.quick.last_notice)
 
     def test_discovered_server_restarts_client_core(self) -> None:
         app = make_app(True, role="client", peer_host="auto")
