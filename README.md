@@ -3,7 +3,7 @@
 [![Release: latest](docs/images/badge-release.svg)](https://github.com/Jasonlya/quickswitch/releases/latest)
 [![License: MIT](docs/images/badge-license.svg)](LICENSE)
 
-一键切换**显示器输入源**和**键鼠控制权**，并在两台电脑之间双向共享**剪贴板**（文本、HTML、图片）。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows；组合键可以自行录制。
+一键切换**显示器输入源**和**键鼠控制权**，并在两台电脑之间双向共享**剪贴板**（文本、HTML、图片）。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows；组合键可以自行录制。macOS 复制图片时会额外写入 Windows 可解码的 BMP，避免粘贴成文件名。
 
 > ⭐ **如果 QuickSwitch 帮到了你，欢迎点个 [Star](https://github.com/Jasonlya/quickswitch)。** 这是对项目最直接的支持，也能帮助更多需要双机切换的人发现它。
 
@@ -35,7 +35,7 @@ QuickSwitch 负责切换显示器输入源，并直接管理内置的键鼠共�
 | 键鼠共享核心（已内置） | 让一套键鼠控制两台电脑 | 无需单独下载或打开客户端；安装包包含 Deskflow 1.27.0 无界面核心 |
 | 显示器 DDC/CI | 允许电脑切换显示器的输入源 | 按显示器机身按钮打开 OSD 菜单，在「系统 / 设置 / 其他设置」里找 DDC/CI；多数型号默认开启，详细路径见 [INSTALL.md](INSTALL.md#11-开启显示器-ddcci) |
 
-键鼠接在 Windows 上时，QuickSwitch 会自动让 Windows 作为服务端、Mac 作为客户端；屏幕左右位置、连接地址、端口和切换热键都由 QuickSwitch 生成并同步给它管理的核心。
+键鼠接在 Windows 上时，QuickSwitch 会自动让 Windows 作为服务端、Mac 作为客户端；屏幕左右位置、连接地址、端口和切换热键都由 QuickSwitch 生成并同步给它管理的核心。两台电脑也会各自注册本机切换热键，因此在 Mac 键盘上按同一个组合键同样可以切换显示器。
 
 Windows 端已内置原生 DDC（DXVA2），**不需要安装 ControlMyMonitor**。macOS 端需要 Apple Silicon，并安装 [m1ddc](https://github.com/waydabber/m1ddc)；如果 Mac 端提示找不到 DDC 工具，按安装文档确认 `ddc.m1ddc_path`。
 
@@ -62,8 +62,8 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v2.2.0
-git push origin v2.2.0
+git tag v2.2.1
+git push origin v2.2.1
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。
@@ -80,7 +80,7 @@ QuickSwitch 的实现离不开这些开源项目及其维护者、贡献者：
 
 - [Deskflow](https://github.com/deskflow/deskflow)：键鼠共享、剪贴板共享和跨设备控制核心。安装包内置未经修改的 Deskflow 1.27.0 无界面构建，遵循 GPL-2.0（附 OpenSSL 例外）。
 - [m1ddc](https://github.com/waydabber/m1ddc)：Apple Silicon Mac 上的 DDC/CI 显示器输入源读取与切换，遵循 MIT。
-- [pywebview](https://github.com/r0x0r/pywebview)、[Pillow](https://github.com/python-pillow/Pillow)、[pystray](https://github.com/moses-palmer/pystray)、[keyboard](https://github.com/boppreh/keyboard)：分别用于设置窗口、图像与托盘图标、系统托盘和 Windows 全局热键。
+- [pywebview](https://github.com/r0x0r/pywebview)、[Pillow](https://github.com/python-pillow/Pillow)、[pystray](https://github.com/moses-palmer/pystray)、[keyboard](https://github.com/boppreh/keyboard)：分别用于设置窗口、图像与托盘图标、系统托盘和 Windows 全局热键；macOS 热键由系统 Carbon API 注册。
 - [PyInstaller](https://github.com/pyinstaller/pyinstaller)：构建 macOS App 与 Windows 安装包。
 
 感谢上述项目作者与所有贡献者。完整许可证说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。QuickSwitch 与这些项目不存在隶属关系，也不代表其官方认可。

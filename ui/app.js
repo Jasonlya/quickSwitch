@@ -723,15 +723,11 @@ function switchSummary(status, target) {
 }
 
 function hotkeyOwnerLabel(status) {
-  if (String(status.role || "").toLowerCase() === "client") return "Windows 键盘";
   return status.hotkeys && status.hotkeys.registered ? "本机热键" : "本机热键未注册";
 }
 
 function hotkeyOwnerDetail(status) {
-  if (String(status.role || "").toLowerCase() === "client") {
-    return "仅在连接键鼠的 Windows 端生效；在 macOS 键盘或输入法上按不会触发";
-  }
-  if (status.hotkeys && status.hotkeys.registered) return "本机已注册";
+  if (status.hotkeys && status.hotkeys.registered) return "本机已注册（Mac / Windows 各自注册）";
   return "本机未注册";
 }
 

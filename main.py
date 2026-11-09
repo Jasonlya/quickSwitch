@@ -44,6 +44,8 @@ from config import (
 )
 from ddc import DDC_OSD_GUIDANCE, DEFAULT_INPUT_CANDIDATES, DDCSwitcher
 import deskflow_bridge
+import mac_clipboard
+import mac_hotkeys
 from discovery import DEFAULT_PORT as DISCOVERY_DEFAULT_PORT
 from discovery import PeerDiscovery
 from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
@@ -52,7 +54,7 @@ from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 from wol import local_mac_addresses, parse_macs, send_magic_packet
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 TARGETS = ("mac", "win")
 
 
@@ -642,6 +644,7 @@ class QuickSwitchApp:
         self.version = VERSION
         self.hostname = socket.gethostname()
         self.platform = platform.system()
+        self._main_thread_id = threading.get_ident()
         self.config_file = Path(config_file) if config_file else config_path(None)
         self.first_run = first_run
         self.log_path = log_file()
@@ -669,6 +672,8 @@ class QuickSwitchApp:
         self.discovery: Optional[PeerDiscovery] = None
         self.icon = None
         self._keyboard = None
+        self._mac_hotkeys: Optional[mac_hotkeys.MacHotkeyManager] = None
+        self._mac_clipboard: Optional[mac_clipboard.MacClipboardNormalizer] = None
         self._thread: Optional[threading.Thread] = None
         self._stopping = False
         self.hotkeys_registered = False
@@ -859,6 +864,8 @@ class QuickSwitchApp:
             return False
         if any(key.startswith("hotkeys.") for key in changed):
             self._setup_hotkeys()
+        if any(key == "deskflow.clipboard_enabled" for key in changed):
+            self._setup_clipboard_normalizer()
         if any(key.startswith("deskflow.") or key.startswith("hotkeys.") for key in changed):
             self._restart_deskflow("配置已更新")
         return True
@@ -1010,6 +1017,11 @@ class QuickSwitchApp:
         if self._keyboard is not None:
             with contextlib.suppress(Exception):
                 self._keyboard.unhook_all_hotkeys()
+        self._close_mac_hotkeys()
+        if self._mac_clipboard is not None:
+            with contextlib.suppress(Exception):
+                self._mac_clipboard.stop()
+            self._mac_clipboard = None
         with contextlib.suppress(Exception):
             asyncio.run_coroutine_threadsafe(self._shutdown_async(), self.loop).result(timeout=5)
         with contextlib.suppress(Exception):
@@ -1039,6 +1051,7 @@ class QuickSwitchApp:
 
         self._install_signal_handlers()
         self._setup_hotkeys()
+        self._setup_clipboard_normalizer()
         self._start_deskflow()
         if self.web_enabled:
             self._start_web()
@@ -1049,8 +1062,7 @@ class QuickSwitchApp:
         if not self.use_tray:
             log.info("未启用托盘，按 Ctrl+C 退出")
             try:
-                while self._thread.is_alive():
-                    self._thread.join(timeout=1.0)
+                self._wait_for_shutdown()
             except KeyboardInterrupt:
                 log.info("收到 Ctrl+C")
             self.shutdown()
@@ -1067,13 +1079,21 @@ class QuickSwitchApp:
                 "修复依赖：pip install pystray Pillow"
             )
             try:
-                while self._thread.is_alive():
-                    self._thread.join(timeout=1.0)
+                self._wait_for_shutdown()
             except KeyboardInterrupt:
                 log.info("收到 Ctrl+C")
         finally:
             self.shutdown()
         return 0
+
+    def _wait_for_shutdown(self) -> None:
+        """等待后台线程退出；macOS 上顺带派发 Carbon 热键事件。"""
+        while self._thread is not None and self._thread.is_alive():
+            if self.platform == "Darwin":
+                with contextlib.suppress(Exception):
+                    mac_hotkeys.pump_events(0.5)
+            else:
+                self._thread.join(timeout=1.0)
 
     def _install_signal_handlers(self) -> None:
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -1126,7 +1146,19 @@ class QuickSwitchApp:
 
     # ---------------------------------------------------------------- 热键
     def _setup_hotkeys(self) -> None:
+        if getattr(self, "_stopping", False):
+            return
         self.hotkeys_registered = False
+        if (
+            getattr(self, "platform", "") == "Darwin"
+            and threading.get_ident() != getattr(self, "_main_thread_id", None)
+        ):
+            self._schedule_macos_hotkey_reload()
+            return
+        self._close_mac_hotkeys()
+        if getattr(self, "platform", "") == "Darwin":
+            self._setup_macos_hotkeys()
+            return
         if str(self.cfg.get("role")) != "server":
             self.hotkeys_reason = "client 模式不在本机注册热键（热键在 Windows 端注册）"
             log.info("client 模式：不在本机注册热键（热键在 Windows 端注册）")
@@ -1179,6 +1211,85 @@ class QuickSwitchApp:
             self.hotkeys_reason = "注册失败：" + "、".join(failures)
         else:
             self.hotkeys_reason = "配置中的热键为空，未注册任何热键"
+
+    def _close_mac_hotkeys(self) -> None:
+        manager = getattr(self, "_mac_hotkeys", None)
+        if manager is not None:
+            with contextlib.suppress(Exception):
+                manager.close()
+            self._mac_hotkeys = None
+
+    def _schedule_macos_hotkey_reload(self) -> None:
+        """Carbon 热键必须在主线程注册；设置页保存来自 HTTP 工作线程。"""
+        self.hotkeys_reason = "正在应用热键更新…"
+        try:
+            from PyObjCTools import AppHelper
+
+            AppHelper.callAfter(self._setup_hotkeys)
+        except Exception as exc:
+            log.warning("无法把热键更新调度到主线程：%s", exc)
+            self.hotkeys_reason = "热键更新失败：无法调度到主线程"
+
+    def _setup_macos_hotkeys(self) -> None:
+        """macOS 不依赖 keyboard 库，直接注册 Carbon 全局热键。"""
+        manager = mac_hotkeys.MacHotkeyManager()
+        hotkeys = self.cfg.get("hotkeys") or {}
+        registered: List[str] = []
+        failures: List[str] = []
+        for field, target in (("switch_to_mac", "mac"), ("switch_to_win", "win")):
+            combo = str(hotkeys.get(field) or "").strip()
+            if not combo:
+                continue
+            normalized = normalize_hotkey(combo)
+            if normalized is None:
+                failures.append(f"{combo}（格式无效）")
+                log.error("热键 %s 格式无效，未注册", combo)
+                continue
+            try:
+                manager.register(
+                    normalized, functools.partial(self.trigger, target, "hotkey")
+                )
+                registered.append(f"{normalized} → {LABEL[target]}")
+                log.info("已注册 macOS 热键 %s → %s", normalized, LABEL[target])
+            except Exception as exc:
+                failures.append(f"{combo}（{exc}）")
+                log.error("注册 macOS 热键 %s 失败：%s", combo, exc)
+        if registered:
+            self._mac_hotkeys = manager
+        else:
+            manager.close()
+        self.hotkeys_registered = bool(registered)
+        if registered and not failures:
+            self.hotkeys_reason = "本机已注册：" + "、".join(registered)
+        elif registered:
+            self.hotkeys_reason = (
+                "本机部分注册：" + "、".join(registered) + "；失败：" + "、".join(failures)
+            )
+        elif failures:
+            self.hotkeys_reason = "本机注册失败：" + "、".join(failures)
+        else:
+            self.hotkeys_reason = "配置中的热键为空，未注册任何热键"
+
+    def _setup_clipboard_normalizer(self) -> None:
+        """macOS 上为图片补一份 Windows 能解码的 BMP。"""
+        deskflow_cfg = self.cfg.get("deskflow") or {}
+        clip = getattr(self, "_mac_clipboard", None)
+        enabled = (
+            getattr(self, "platform", "") == "Darwin"
+            and not self.dry_run
+            and bool(deskflow_cfg.get("clipboard_enabled", True))
+        )
+        if not enabled:
+            if clip is not None:
+                with contextlib.suppress(Exception):
+                    clip.stop()
+                self._mac_clipboard = None
+            return
+        if clip is None:
+            clip = mac_clipboard.MacClipboardNormalizer()
+            self._mac_clipboard = clip
+        if not clip.running and not clip.start():
+            log.warning("macOS 图片剪贴板规范化未能启动")
 
     # ---------------------------------------------------------------- 托盘
     def trigger(self, target: str, source: str = "manual"):

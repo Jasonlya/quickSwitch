@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import types
 import unittest
 import sys
 from unittest import mock
@@ -25,6 +26,7 @@ def make_app(
         "hotkeys": {"switch_to_mac": "ctrl+alt+1", "switch_to_win": "ctrl+alt+2"},
     }
     app.platform = "Darwin"
+    app._main_thread_id = threading.get_ident()
     app.dry_run = dry_run
     app.deskflow_status = {
         "auto_start": auto_start,
@@ -199,6 +201,60 @@ class DeskflowStartupTests(unittest.TestCase):
         registered = [call.args[0] for call in fake.add_hotkey.call_args_list]
         self.assertEqual(registered, ["ctrl+alt+1", "ctrl+alt+2", "ctrl+shift+f8", "ctrl+alt+2"])
         self.assertTrue(app.hotkeys_registered)
+
+    def test_macos_client_registers_local_hotkeys(self) -> None:
+        app = make_app(True, role="client")
+        app._mac_hotkeys = None
+        app.hotkeys_registered = False
+        app.hotkeys_reason = ""
+        manager = mock.Mock()
+        with mock.patch("main.mac_hotkeys.MacHotkeyManager", return_value=manager):
+            QuickSwitchApp._setup_hotkeys(app)
+        self.assertEqual(manager.register.call_count, 2)
+        self.assertTrue(app.hotkeys_registered)
+        self.assertIn("本机已注册", app.hotkeys_reason)
+        self.assertIs(app._mac_hotkeys, manager)
+
+    def test_macos_client_records_missing_hotkeys(self) -> None:
+        app = make_app(True, role="client")
+        app.cfg["hotkeys"] = {"switch_to_mac": "", "switch_to_win": ""}
+        app._mac_hotkeys = None
+        manager = mock.Mock()
+        with mock.patch("main.mac_hotkeys.MacHotkeyManager", return_value=manager):
+            QuickSwitchApp._setup_hotkeys(app)
+        self.assertFalse(app.hotkeys_registered)
+        self.assertIn("为空", app.hotkeys_reason)
+        manager.close.assert_called_once()
+
+    def test_macos_hotkey_update_from_worker_is_deferred_to_main_thread(self) -> None:
+        app = make_app(True, role="client")
+        app._main_thread_id = -1
+        helper = types.SimpleNamespace(callAfter=mock.Mock())
+        package = types.ModuleType("PyObjCTools")
+        package.AppHelper = helper
+        with mock.patch.dict(
+            sys.modules,
+            {"PyObjCTools": package, "PyObjCTools.AppHelper": helper},
+        ):
+            QuickSwitchApp._setup_hotkeys(app)
+        helper.callAfter.assert_called_once_with(app._setup_hotkeys)
+        self.assertIn("正在应用", app.hotkeys_reason)
+
+    def test_clipboard_normalizer_starts_and_stops(self) -> None:
+        app = make_app(True, role="client")
+        app._mac_clipboard = None
+        fake = mock.Mock()
+        fake.running = False
+        fake.start.return_value = True
+        with mock.patch("main.mac_clipboard.MacClipboardNormalizer", return_value=fake) as factory:
+            QuickSwitchApp._setup_clipboard_normalizer(app)
+        factory.assert_called_once()
+        fake.start.assert_called_once()
+
+        app.cfg["deskflow"]["clipboard_enabled"] = False
+        QuickSwitchApp._setup_clipboard_normalizer(app)
+        fake.stop.assert_called_once()
+        self.assertIsNone(app._mac_clipboard)
 
     def test_refresh_keeps_last_failure_detail(self) -> None:
         app = make_app(True)

@@ -29,7 +29,7 @@ macOS 主机通过 WiFi 接入同一局域网；两台主机共用一台显示�
           |-- TCP 通知 Mac --> Mac 端 m1ddc 再切一次（方案 10.1 的冗余保险）
 ```
 
-Windows 端是 `server`（注册热键），macOS 端是 `client`（只接收 TCP 指令并调用 DDC，不注册热键）。
+Windows 端是 `server`，macOS 端是 `client`；角色决定 Deskflow 连接方向，切换热键则在两端本机各自注册。
 
 ## 2. 相对方案文档的实现说明
 
@@ -63,6 +63,8 @@ Windows 端是 `server`（注册热键），macOS 端是 `client`（只接收 TC
 ```
 quickswitch/
   main.py            入口：切换逻辑 + 托盘 + 热键 + 命令行
+  mac_hotkeys.py     macOS 本机全局热键（Carbon RegisterEventHotKey）
+  mac_clipboard.py   macOS 图片剪贴板规范化为 Windows 兼容 BMP
   config.py          配置加载、深度合并、校验、默认值生成
   ddc.py             DDC/CI 封装（Windows 原生 DXVA2 + macOS/Linux 命令模板 + 重试 + 读取）
   windows_ddc.py     Windows 原生 DDC 后端（user32/dxva2，枚举物理显示器并读写 VCP 0x60）
@@ -84,7 +86,7 @@ quickswitch/
     installer.nsi           Windows：NSIS 安装包（快捷方式、防火墙规则、卸载项）
     print-version.py        从 main.py 读取版本号，供 DMG/CI 共用
     entitlements.plist      hardened runtime 权限（最小集）
-    version_info.txt        Windows exe 的版本资源（2.2.0.0）
+    version_info.txt        Windows exe 的版本资源（2.2.1.0）
     make-icons.py           用 Pillow 生成 icon.png / icon.ico / icon.icns
     icon.png / icon.ico / icon.icns   已生成好的图标
   THIRD_PARTY_NOTICES.md Deskflow 版本、GPL-2.0、源码与校验信息
@@ -110,7 +112,7 @@ pip install -r requirements.txt
 python main.py --init-config
 
 :: 3) 按 §8.1 确认 DDC 能切显示器，然后填入 mac_input / win_input
-:: 4) 以管理员身份运行（keyboard 注册全局热键需要管理员权限）
+:: 4) 以管理员身份运行（Windows 的 keyboard 全局热键需要管理员权限）
 python main.py
 ```
 
@@ -177,7 +179,9 @@ Windows 上所有状态轮询和 DDC 外部命令都通过 `process_utils.silent
 
 Windows 安装包会自动放行 TCP `24800`。macOS 首次仍需在「隐私与安全性」中授予辅助功能、输入监控和本地网络权限；修改后点设置页「重启键鼠共享」。若日志出现 `assistive devices does not trust this process`、`process is not trusted anymore` 或 `failed to create quartz event tap`，设置页会标记需要权限，并在本次运行首次发现时自动打开一次辅助功能设置，同时提供「打开辅助功能设置」「打开输入监控设置」「重建 macOS 授权」三个入口。两端内置版本统一为 `1.27.0`。
 
-QuickSwitch 注册热键时使用 `suppress=False`，所以内置核心能收到同一个热键；`deskflow_bridge.py` 会把 `config.json` 的热键转换成 Deskflow 的 `keystroke(...) = switchToScreen(...)` 配置，无需在客户端里重复设置。
+QuickSwitch 在 Windows 上使用 `keyboard` 库、在 macOS 上使用 Carbon `RegisterEventHotKey` 注册本机热键，均使用 `suppress=False`，所以内置核心能收到同一个热键；`deskflow_bridge.py` 会把 `config.json` 的热键转换成 Deskflow 的 `keystroke(...) = switchToScreen(...)` 配置，无需在客户端里重复设置。macOS 从设置页保存热键时会把更新调度回主线程，避免在 HTTP 工作线程注册 Carbon 热键。
+
+macOS 端还会轮询 `NSPasteboard`：检测到图片时补写一份规范的 `com.microsoft.bmp`（40 字节 `BITMAPINFOHEADER`、`BI_RGB`、bottom-up），修复 Deskflow 1.27.0 把 `BITMAPV5HEADER` / `BI_BITFIELDS` 原样转发、导致 Windows 侧粘贴成文件名或无图的问题。实现不调用 `clearContents`，也不改变剪贴板变更计数，避免触发 Deskflow 重传循环。
 
 ### 4.4 网络（三选一）
 
@@ -269,7 +273,7 @@ QuickSwitch 注册热键时使用 `suppress=False`，所以内置核心能收到
 
 | 字段 | 说明 |
 | --- | --- |
-| `role` | `server`（Windows，注册热键）或 `client`（macOS，只响应 TCP） |
+| `role` | `server`（Windows，Deskflow 服务端）或 `client`（macOS，Deskflow 客户端）；两端都注册本机切换热键 |
 | `peer_host` | 对端地址；`"auto"` = 启用局域网自动发现 |
 | `peer_port` / `listen_port` | 对端端口 / 本机监听端口（两端都用 8765 即可） |
 | `tray` | 是否显示托盘图标（也可用 `--no-tray` 临时关闭） |
@@ -355,7 +359,7 @@ macOS 使用系统 WKWebView，Windows 使用 WebView2；窗口由独立子进�
 | 诊断工具 | 读取当前输入源 / 探测输入源（可自定义候选值，留空用内置候选集） |
 | 连接 | 角色、监听端口、最近切换目标、对端地址与连接状态、对端身份、对端密钥校验结果、自动发现到的设备 |
 | 显示器 DDC | 工具路径与可用性、按当前配置拼好的三条命令行（可直接复制到终端核对）、Mac/Windows 取值、当前输入源与上次读取时间 |
-| 热键 | 组合键、是否注册成功、失败原因（例如未安装 `keyboard`、缺少管理员权限） |
+| 热键 | 组合键、是否注册成功、失败原因（例如未安装 `keyboard`、Windows 缺少管理员权限、macOS Carbon 注册失败） |
 | 配置 | 白名单字段可视化编辑；保存前用 `config.validate` 校验，校验不过不落盘；标记「需重启」的字段会明确告知要重启才生效 |
 | 事件 | 运行中进程的日志尾部（内存环形缓冲，不额外落盘），倒序 |
 
@@ -434,7 +438,7 @@ python3 main.py --status
 | Windows | `dist/QuickSwitch.exe` + NSIS 安装包（自带 Python 运行时、`ui/` 和 `deskflow\` 便携版） | Authenticode（`signtool`）+ 时间戳 | `packaging/build-windows.ps1` + `installer.nsi` |
 | macOS | `dist/QuickSwitch.app`（**onedir 应用包**，自带 `ui/`、WKWebView 桥接依赖和嵌套 `Deskflow.app`） | codesign（Developer ID + hardened runtime）→ 公证 → 装订 | `packaging/build-macos.sh` |
 
-两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.2.0`）用于运行时与 macOS
+两端的目标机都不需要预装 Python 或依赖。`main.py` 的 `VERSION`（当前 `2.2.1`）用于运行时与 macOS
 `CFBundleShortVersionString`；Windows 的 `packaging/version_info.txt` 是静态版本资源，发布时需要同步更新。
 图标由 `packaging/make-icons.py` 用 Pillow 现画（Apple 蓝渐变圆角方块 + 两台显示器 + 箭头），
 `icon.png` / `icon.ico` / `icon.icns` 已随仓库提供，构建时若缺失会自动重画。
@@ -469,7 +473,7 @@ packaging/build-macos.sh --no-sign                                 # 只出未�
 packaging/build-macos.sh --keychain-profile quickswitch-notary     # 签名 + 公证（自动挑 Developer ID 身份）
 packaging/build-macos.sh --identity "Developer ID Application: X (TEAMID)" \
                          --keychain-profile quickswitch-notary \
-                         --zip dist/QuickSwitch-2.2.0.zip          # 顺便导出一份可分发 zip
+                         --zip dist/QuickSwitch-2.2.1.zip          # 顺便导出一份可分发 zip
 ```
 
 脚本按顺序做：预检（工具链 / 图标 / 签名身份 / 公证凭据）→ 建 `.venv-build` 并装依赖 → PyInstaller →
@@ -521,7 +525,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 `
 ```bash
 python3 packaging/fetch-deskflow.py --target macos-arm64
 packaging/build-macos.sh --no-sign
-packaging/build-dmg.sh --out dist/QuickSwitch-2.2.0-macOS-arm64.dmg
+packaging/build-dmg.sh --out dist/QuickSwitch-2.2.1-macOS-arm64.dmg
 ```
 
 Windows 安装包在 Windows 构建机上生成：
@@ -529,7 +533,7 @@ Windows 安装包在 Windows 构建机上生成：
 ```powershell
 python packaging\fetch-deskflow.py --target windows-x64
 powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1 -NoSign
-makensis -INPUTCHARSET UTF8 /DVERSION=2.2.0 packaging\installer.nsi
+makensis -INPUTCHARSET UTF8 /DVERSION=2.2.1 packaging\installer.nsi
 ```
 
 GitHub Actions 的发布流程在 `.github/workflows/release.yml`：推送 `v*` 标签后先在 macOS/Windows
@@ -541,8 +545,8 @@ macOS 版只支持 Apple Silicon。`build-macos.sh` 与 `build-dmg.sh` 都会在
 DMG 脚本还会检查 `.app` 内是否包含 arm64 可执行文件。
 
 ```bash
-git tag v2.2.0
-git push origin v2.2.0
+git tag v2.2.1
+git push origin v2.2.1
 ```
 
 CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把 Apple Developer ID 与 Windows 代码签名材料接入仓库 Secrets，
@@ -582,13 +586,14 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
   `netsh advfirewall firewall add rule name="QuickSwitch" dir=in action=allow protocol=TCP localport=8765`
   、`netsh advfirewall firewall add rule name="QuickSwitch Discovery" dir=in action=allow protocol=UDP localport=8766`
   和 `netsh advfirewall firewall add rule name="QuickSwitch Deskflow" dir=in action=allow protocol=TCP localport=24800`。
-  注册全局热键需要管理员权限（托盘图标本身不需要）。
+  Windows 注册全局热键需要管理员权限（托盘图标本身不需要）；macOS 使用 Carbon，无需额外权限。
 - macOS：内置键鼠共享核心需要「辅助功能」「输入监控」权限；首次被 QuickSwitch 访问局域网时允许弹窗。
 
 ### 7.6 本目录的验证状态
 
-> 当前发布策略：`v2.2.0` 增加睡眠 / 关机保护与可选网络唤醒，避免 Mac 睡眠或 Windows 未开机时把显示器切到无信号输入；继续保留稳定的 macOS Ad-hoc 授权与内置官方 Deskflow 无界面核心。macOS 安装包仅提供 Apple Silicon（arm64）。
+> 当前发布策略：`v2.2.1` 修复 macOS 本机热键与 macOS → Windows 图片剪贴板兼容性；继续保留睡眠 / 关机保护、网络唤醒、稳定的 macOS Ad-hoc 授权与内置官方 Deskflow 无界面核心。macOS 安装包仅提供 Apple Silicon（arm64）。
 
+- **v2.2.1**：修复 macOS client 不注册本机热键的问题，`switch_to_mac` / `switch_to_win` 现在通过 Carbon `RegisterEventHotKey` 在 Mac 键盘上直接生效；设置页保存热键时会调度回主线程重新注册。修复 macOS 复制图片到 Windows 后粘贴成文件名：Mac 端为剪贴板图片补写规范的 `com.microsoft.bmp`（40 字节 `BITMAPINFOHEADER`、`BI_RGB`、bottom-up），避开 Deskflow 1.27.0 对 `BITMAPV5HEADER` / `BI_BITFIELDS` 的不兼容处理，同时不改变剪贴板变更计数以避免重复同步。新增 macOS 热键、剪贴板规范化和主线程调度测试，共 265 项测试通过。
 - **v2.2.0**：新增睡眠 / 关机保护。切换前先探测目标端，目标离线时保留当前输入并提示，不再把显示器切到黑屏；切到远端后持续探活，失联超过宽限期自动切回本机；启动时若显示器仍停在上次使用但已离线的对端输入，也会自动恢复。新增可选 Wake-on-LAN：优先使用配置里的 `wake.mac`，否则使用发现/握手时对端上报的 MAC，发送魔包并等待 QuickSwitch 重新上线后再切 DDC。网络层增加可即时打断退避等待的重连信号，发现包和 hello 携带 `wake_macs`。Web 状态与设置页新增 `last_error` / `last_notice` 以及「睡眠 / 离线保护」「网络唤醒（WoL）」配置。新增 WoL、探活、断线回切、启动恢复与网络重连测试，共 251 项测试通过。
 - **v2.1.0**：键鼠共享新增双向剪贴板，支持文本、HTML 和图片，默认上限 `16 MiB`，可在设置页开关并调整到 `1-128 MiB`；客户端沿用 Windows 服务端配置。热键改为可视化录制，支持格式与重复校验、Esc 取消、恢复默认；保存时会先注销旧全局钩子再注册新组合键，修复修改后旧热键残留/新热键失效。切换链路改为本机 DDC 与远端确认并行执行，本机成功后 `0.35s` 内未确认即转后台，不再让 macOS 端 `m1ddc` 的重试阻塞下一次热键；新切换会取消上一笔未完成的后台确认。新增剪贴板配置、热键规范化、旧钩子清理和慢对端切换回归测试，共 240 项测试通过。
 - **v2.0.5**：修复 macOS 每次授予辅助功能/输入监控后仍提示「需要权限」。旧版 Ad-hoc 签名的 designated requirement 绑定 cdhash，升级后 TCC 记录与新 App 不匹配；新版在 Ad-hoc 签名时显式写入稳定的 `identifier "io.quickswitch.agent"`，后续版本不再因重新打包丢失授权。设置页和托盘新增「重建 macOS 授权」，通过 `tccutil reset` 清除旧记录并重启 App；命令行可用 `--reset-macos-permissions`。新增对应回归测试。
@@ -612,7 +617,7 @@ CI 默认产出**未签名**安装包。要发布签名/公证版本，需要把
   Windows 自动使用 `server` 角色。
 - **已验证（Windows 高 DPI 配置）**：Windows EXE manifest 声明 Per-Monitor V2，
   `settings_window.py` 在 WebView2 创建前提供运行时兜底；manifest 解析和专项测试通过。
-- **发布产物**：GitHub Actions 在 `v2.2.0` 标签上构建 macOS arm64 DMG、Windows Setup 与
+- **发布产物**：GitHub Actions 在 `v2.2.1` 标签上构建 macOS arm64 DMG、Windows Setup 与
   `SHA256SUMS.txt`。安装包未签名，首次打开方式见 README。
 - **未验证**（本机不具备条件）：真实 `codesign` / `notarytool` / `stapler` 全流程——本机只装了 Command Line Tools，
   钥匙串里没有 Developer ID 证书，`build-macos.sh --check` 会明确报出这两项缺失（预期行为）；
@@ -720,7 +725,7 @@ python main.py --once mac               # 真实切换
 - 按 `Ctrl+Alt+2`：切回 Windows；
 - 杀掉一端进程：另一端应打印「对端连接断开（会自动重连）」，重启后自动恢复；
 - 修改对端 IP 后（Tailscale 或 `"auto"` 模式）无需改配置；
-- 剪贴板：Windows 复制文本、HTML 和图片 → Mac 粘贴，再反向验证（Deskflow）；超大内容应超过 `deskflow.clipboard_size` 并被拒绝；
+- 剪贴板：macOS 复制截图 → Windows 粘贴为图片；再验证 Windows 复制文本、HTML 和图片 → Mac 粘贴（Deskflow）；超大内容应超过 `deskflow.clipboard_size` 并被拒绝；
 - 自定义热键：在设置页「录入」组合键并保存，确认旧热键失效、新热键同时切换显示器和键鼠；
 - 延迟：切换时本机 DDC 完成后应立刻释放热键，对端确认最迟在后台完成，不阻塞下一次按键；
 - 文件传输：两端打开 LocalSend 应能互相发现并发送文件。
@@ -743,7 +748,8 @@ python3 main.py --status          # 应显示「密钥校验：已通过（hmac-
 | 现象 | 处理 |
 | --- | --- |
 | 启动报「监听端口 8765 不可用」 | 已有一个 QuickSwitch 在跑（退出码 3）；或改 `listen_port` |
-| 按热键无反应 | 需管理员权限（用 `install-task.ps1` 或「以管理员身份运行」）；检查是否与其他软件抢占热键；`--log-level DEBUG` 看是否注册成功 |
+| 按热键无反应 | Windows 需管理员权限（用 `install-task.ps1` 或「以管理员身份运行」）；macOS 无需额外权限；检查是否与其他软件抢占热键；`--log-level DEBUG` 看是否注册成功 |
+| macOS 图片粘到 Windows 变成文件名 | 确认 `deskflow.clipboard_enabled` 为 `true`；2.2.1 会在 macOS 端补写 Windows 可解码的 BMP。若是在 Finder 复制图片文件后粘到资源管理器，Deskflow 不传输文件本身，仍可能显示文件名；请粘到支持图片的应用验证 |
 | QuickSwitch 没拉到键鼠共享核心 | 运行 `--deskflow-status` 看 `installed` / `bundled` / `managed` / `running` / `connected` / `last_error`；安装包内置版应分别位于 `QuickSwitch\deskflow` 或 App 的 `Contents/Resources/deskflow`；也可在设置页点「重启键鼠共享」 |
 | 只切了显示器和键鼠之一 | 先看主界面键鼠共享状态；「等待连接」表示核心运行但尚未握手，「连接异常」会显示超时/拒绝/权限原因。再检查 `~/.quickswitch/deskflow/deskflow.log`、两端 `deskflow.port` 是否一致、`deskflow.mac_side` 是否与实际屏幕方向一致；macOS 权限不足时重启核心 |
 | 显示器不切换，日志显示 DDC 失败 | 确认 `ddc.display_index`；显示器需支持并开启 DDC/CI（部分型号需在 OSD 菜单打开）；建议视频线直连、避免转接。Windows 原生 DXVA2 失败时，ControlMyMonitor 只是可选回退，不是必需依赖 |

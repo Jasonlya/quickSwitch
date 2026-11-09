@@ -1,5 +1,5 @@
 ﻿; QuickSwitch Windows 安装包（NSIS 3.x）
-; 构建：makensis -INPUTCHARSET UTF8 -DVERSION=2.2.0 packaging\installer.nsi
+; 构建：makensis -INPUTCHARSET UTF8 -DVERSION=2.2.1 packaging\installer.nsi
 ; 产物：dist\QuickSwitch-Setup-<VERSION>.exe
 ; 说明：需要先由 packaging\quickswitch.spec 产出 dist\QuickSwitch.exe
 
@@ -7,7 +7,7 @@
 !include "FileFunc.nsh"
 
 !ifndef VERSION
-  !define VERSION "2.2.0"
+  !define VERSION "2.2.1"
 !endif
 
 !define APPNAME   "QuickSwitch"

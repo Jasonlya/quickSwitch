@@ -46,7 +46,14 @@ def available(module: str):
 
 hiddenimports = available("pystray") + available("PIL._imaging") + available("webview")
 if IS_MAC:
-    hiddenimports += available("pystray._darwin") + available("webview.platforms.cocoa")
+    hiddenimports += (
+        available("pystray._darwin")
+        + available("webview.platforms.cocoa")
+        + available("AppKit")
+        + available("Foundation")
+        + available("objc")
+        + available("PyObjCTools.AppHelper")
+    )
 elif IS_WIN:
     hiddenimports += (
         available("pystray._win32")
