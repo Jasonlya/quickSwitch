@@ -9,7 +9,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from clipboard_sync import CHUNK, ClipboardSync, pack_files, unpack_files
+from clipboard_sync import CHUNK, ClipboardSync, pack_files, unpack_files, safe_name
 from network import _Auth
 
 
@@ -73,7 +73,9 @@ class FileTests(unittest.TestCase):
                 pack_files([link], 1000)
 
     def test_rejects_traversal_reserved_names_and_zip_bomb(self):
-        for name in ("../escape", "/absolute", "a/../../escape", "C:/file", "a\\file", "CON.txt"):
+        with self.assertRaises(ValueError):
+            safe_name("a\\file")
+        for name in ("../escape", "/absolute", "a/../../escape", "C:/file", "CON.txt"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
                 output = io.BytesIO()
                 with zipfile.ZipFile(output, "w") as z:

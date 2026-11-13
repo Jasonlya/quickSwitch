@@ -55,7 +55,7 @@ from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 from wol import local_mac_addresses, parse_macs, send_magic_packet
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 TARGETS = ("mac", "win")
 
 

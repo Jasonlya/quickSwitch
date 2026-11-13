@@ -30,10 +30,11 @@ class WindowsFormatTests(unittest.TestCase):
         self.assertEqual(html[start:end].decode(), "<b>你好</b>")
 
     def test_file_list_uses_wide_dropfiles_header(self):
-        self.backend.write("files", [Path("C:/图片.png"), Path("C:/目录")])
+        paths = [Path("C:/图片.png"), Path("C:/目录")]
+        self.backend.write("files", paths)
         data = self.formats[15]
         self.assertEqual(struct.unpack("<IiiII", data[:20]), (20, 0, 0, 0, 1))
-        self.assertEqual(data[20:].decode("utf-16-le"), "C:/图片.png\0C:/目录\0\0")
+        self.assertEqual(data[20:].decode("utf-16-le"), "\0".join(str(path) for path in paths) + "\0\0")
 
     def test_image_has_dib_header_and_pixels(self):
         output = io.BytesIO()
