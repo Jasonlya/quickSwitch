@@ -248,16 +248,15 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch ${{ github.ref_name }}：增强 Mac / Windows 切换热键，新增文件剪贴板传输。
+            QuickSwitch ${{ github.ref_name }}：修复托盘设置入口及热键误触。
 
-            - macOS 增加独立 HID 热键监听，保留 Carbon 后备；Windows 监听 Deskflow 实际焦点切换作为兜底。
-            - 修正无法读取 DDC 当前输入时误用历史状态，导致跳过切换的问题。
-            - 原生同步文本、HTML、截图、文件及文件夹；文件可粘到 Finder / 资源管理器。
-            - 剪贴板新增分块、SHA-256 校验、接收确认、超时重试和防循环回传；默认上限 16 MiB。
-            - **Mac 和 Windows 两端均需更新**，旧版不支持新剪贴板协议。
-            - 文件缓存位于 `~/.quickswitch/clipboard-cache/`；不再需要时可手动清理。
-            - 继续内置 Deskflow 1.27.0；macOS 支持 Apple Silicon（arm64），Windows 支持 10/11 x64。
-            - 自动化测试通过后构建；真实双机热键和原生剪贴板仍需实机验收。
+            - Windows 双击托盘图标打开设置；macOS 左键打开设置、右键打开菜单。
+            - 设置窗口已在运行时恢复并置前。
+            - 暂停自定义热键，旧配置统一恢复为 Ctrl+Alt+1 / Ctrl+Alt+2。
+            - 热键回调检查操作系统实时键状态，三个键必须同时按住；拒绝缺键、额外 Shift / Win 或两个数字同时按住。
+            - 移除 Deskflow 焦点日志驱动的显示器切换，避免非热键的焦点变化触发切屏。
+            - 保留文本、HTML、图片、文件及文件夹同步；两端均需更新。
+            - macOS 支持 Apple Silicon（arm64），Windows 支持 10/11 x64。
 
             安装包尚未签名：macOS 首次打开请右键 App →「打开」；Windows 如遇 SmartScreen，请选择「更多信息 → 仍要运行」。
 

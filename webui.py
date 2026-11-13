@@ -471,6 +471,10 @@ class WebConsole:
         raw = payload.get("values") if isinstance(payload.get("values"), dict) else payload
         if not isinstance(raw, dict):
             raise ValueError("请求体需要 values 对象")
+        from fixed_hotkeys import FIXED_HOTKEYS
+        requested = raw.get("hotkeys", {})
+        if not isinstance(requested, dict) or any(value != FIXED_HOTKEYS.get(key) for key, value in requested.items()):
+            raise ValueError("自定义热键已关闭，仅支持 Ctrl+Alt+1 / Ctrl+Alt+2")
         values = filter_editable(raw)
         if not values:
             raise ValueError("没有可更新的字段")

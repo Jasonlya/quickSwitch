@@ -134,6 +134,40 @@ def run_settings_window(url: str) -> int:
         return 1
 
 
+def focus_settings_process(pid: int) -> bool:
+    """Restore and foreground the already-running settings window."""
+    try:
+        if sys.platform == "darwin":
+            from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps
+            app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+            return bool(app and app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes as w
+            user = ctypes.WinDLL("user32", use_last_error=True)
+            callback_type = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
+            user.EnumWindows.argtypes = [callback_type, w.LPARAM]
+            user.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
+            user.IsWindowVisible.argtypes = [w.HWND]
+            user.ShowWindow.argtypes = [w.HWND, ctypes.c_int]
+            user.SetForegroundWindow.argtypes = [w.HWND]
+            found = []
+            @callback_type
+            def visit(hwnd, _):
+                owner = w.DWORD()
+                user.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+                if owner.value == pid and user.IsWindowVisible(hwnd):
+                    user.ShowWindow(hwnd, 9)  # SW_RESTORE also restores minimized windows.
+                    found.append(bool(user.SetForegroundWindow(hwnd)))
+                    return False
+                return True
+            user.EnumWindows(visit, 0)
+            return any(found)
+    except Exception as exc:
+        log.debug("激活已有设置窗口失败：%s", exc)
+    return False
+
+
 class SettingsWindow:
     """管理唯一的设置窗口子进程；重复点击托盘不会叠加窗口。"""
 
@@ -146,6 +180,7 @@ class SettingsWindow:
         if not is_local_console_url(self.url) or not webview_available():
             return False
         if self._process is not None and self._process.poll() is None:
+            focus_settings_process(self._process.pid)
             return True
         try:
             self._process = subprocess.Popen(

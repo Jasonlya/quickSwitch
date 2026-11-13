@@ -155,14 +155,14 @@ class ConfigTests(unittest.TestCase):
         self.assertIsNone(config_module.normalize_hotkey("a"))
         self.assertIsNone(config_module.normalize_hotkey("hyper+1"))
 
-    def test_invalid_custom_hotkey_raises(self) -> None:
+    def test_legacy_custom_hotkey_is_reset(self) -> None:
         self.path.write_text(
             json.dumps({"hotkeys": {"switch_to_mac": "a"}}), encoding="utf-8"
         )
-        with self.assertRaisesRegex(config_module.ConfigError, "格式无效"):
-            config_module.load_config()
+        cfg = config_module.load_config()
+        self.assertEqual(cfg["hotkeys"], config_module.FIXED_HOTKEYS)
 
-    def test_same_hotkey_is_case_insensitive(self) -> None:
+    def test_duplicate_legacy_hotkeys_are_reset(self) -> None:
         self.path.write_text(
             json.dumps({
                 "hotkeys": {
@@ -172,8 +172,8 @@ class ConfigTests(unittest.TestCase):
             }),
             encoding="utf-8",
         )
-        with self.assertRaises(config_module.ConfigError):
-            config_module.load_config()
+        cfg = config_module.load_config()
+        self.assertEqual(cfg["hotkeys"], config_module.FIXED_HOTKEYS)
 
     def test_broken_json_raises(self) -> None:
         self.path.write_text("{ not json", encoding="utf-8")
@@ -198,11 +198,11 @@ class ConfigTests(unittest.TestCase):
         warnings = config_module.validate(cfg)
         self.assertEqual([w for w in warnings if "discovery" in w], [])
 
-    def test_same_hotkey_raises_for_server(self) -> None:
+    def test_server_hotkeys_are_fixed(self) -> None:
         cfg = config_module.default_config()
         cfg["hotkeys"]["switch_to_win"] = cfg["hotkeys"]["switch_to_mac"]
-        with self.assertRaises(config_module.ConfigError):
-            config_module.validate(cfg)
+        config_module.validate(cfg)
+        self.assertEqual(cfg["hotkeys"], config_module.FIXED_HOTKEYS)
 
     def test_client_role_skips_hotkey_validation(self) -> None:
         cfg = config_module.default_config()

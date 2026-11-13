@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from config import normalize_hotkey
+from fixed_hotkeys import FIXED_HOTKEYS
 from process_utils import silent_subprocess_kwargs
 
 log = logging.getLogger("deskflow")
@@ -439,7 +440,7 @@ def render_server_config(cfg: Dict[str, Any]) -> str:
     side = str(_section(cfg).get("mac_side") or "left")
     # mac_side 描述 Mac 相对 Windows 的位置：Mac 在左侧时，Windows 的左边就是客户端。
     server_side, client_side = ("left", "right") if side == "left" else ("right", "left")
-    hotkeys = cfg.get("hotkeys") or {}
+    hotkeys = FIXED_HOTKEYS
     to_mac = _hotkey_to_deskflow(hotkeys.get("switch_to_mac"))
     to_win = _hotkey_to_deskflow(hotkeys.get("switch_to_win"))
 

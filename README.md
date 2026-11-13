@@ -3,7 +3,7 @@
 [![Release: latest](docs/images/badge-release.svg)](https://github.com/Jasonlya/quickswitch/releases/latest)
 [![License: MIT](docs/images/badge-license.svg)](LICENSE)
 
-一键切换**显示器输入源**和**键鼠控制权**，并在两台电脑之间双向共享**剪贴板**（文本、HTML、图片、文件及文件夹）。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows；组合键可以自行录制。剪贴板由 QuickSwitch 通过对端连接分块传输，不依赖键鼠焦点切换；文件粘到 Finder / 资源管理器，截图粘到支持图片的应用。两端均需使用支持新剪贴板协议的版本。
+一键切换**显示器输入源**和**键鼠控制权**，并在两台电脑之间双向共享**剪贴板**（文本、HTML、图片、文件及文件夹）。Windows 与 Mac 共用一台显示器，按 `Ctrl+Alt+1` 切到 Mac，按 `Ctrl+Alt+2` 切回 Windows；热键固定为这两组，必须同时按住三个键，自定义录制已关闭。剪贴板由 QuickSwitch 通过对端连接分块传输，不依赖键鼠焦点切换；文件粘到 Finder / 资源管理器，截图粘到支持图片的应用。两端均需使用支持新剪贴板协议的版本。
 
 > ⭐ **如果 QuickSwitch 帮到了你，欢迎点个 [Star](https://github.com/Jasonlya/quickswitch)。** 这是对项目最直接的支持，也能帮助更多需要双机切换的人发现它。
 
@@ -62,8 +62,8 @@ macOS 首次使用键鼠共享时，需要在「系统设置 → 隐私与安全
 发布新版本时，维护者推送 `v*` 标签即可触发 GitHub Actions，自动构建 macOS DMG 和 Windows 安装包：
 
 ```bash
-git tag v2.3.1
-git push origin v2.3.1
+git tag v2.3.2
+git push origin v2.3.2
 ```
 
 构建产物会出现在仓库的 **Releases** 页面。

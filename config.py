@@ -15,6 +15,8 @@ import secrets
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from fixed_hotkeys import FIXED_HOTKEYS
+
 log = logging.getLogger("config")
 
 DEFAULT_CONFIG_DIR = Path.home() / ".quickswitch"
@@ -372,28 +374,8 @@ def validate(cfg: Dict[str, Any]) -> List[str]:
         except re.error as exc:
             raise ConfigError(f"ddc.read_regex 不是合法正则：{exc}") from exc
 
-    hotkeys = cfg.get("hotkeys")
-    if not isinstance(hotkeys, dict):
-        raise ConfigError("hotkeys 必须是 JSON 对象")
-    if role == "server":
-        normalized_hotkeys: Dict[str, str] = {}
-        for field in ("switch_to_mac", "switch_to_win"):
-            value = hotkeys.get(field)
-            if not isinstance(value, str) or not value.strip():
-                warnings.append(f"hotkeys.{field} 为空，该热键不会被注册")
-                continue
-            normalized = normalize_hotkey(value)
-            if normalized is None:
-                raise ConfigError(
-                    f"hotkeys.{field} 格式无效：{value!r}。请使用 Ctrl/Alt/Shift/Win "
-                    "组合键，例如 ctrl+alt+1；单键仅支持 F1-F12"
-                )
-            normalized_hotkeys[field] = normalized
-        if (
-            "switch_to_mac" in normalized_hotkeys
-            and normalized_hotkeys.get("switch_to_mac") == normalized_hotkeys.get("switch_to_win")
-        ):
-            raise ConfigError("hotkeys.switch_to_mac 与 hotkeys.switch_to_win 不能相同")
+    # Migrate legacy/custom values, including empty or modifier-only shortcuts.
+    cfg["hotkeys"] = dict(FIXED_HOTKEYS)
 
     deskflow = cfg.get("deskflow") or {}
     if not isinstance(deskflow, dict):

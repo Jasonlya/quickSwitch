@@ -254,19 +254,19 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("quickswitch-server:\n        right = quickswitch-client", text)
         self.assertIn("quickswitch-client:\n        left = quickswitch-server", text)
 
-    def test_invalid_hotkeys_are_omitted(self) -> None:
+    def test_invalid_legacy_hotkeys_restore_fixed_layout(self) -> None:
         cfg = self.cfg()
         cfg["hotkeys"]["switch_to_mac"] = "hyper+1"
         text = deskflow_bridge.render_server_config(cfg)
-        self.assertNotIn("switchToScreen(quickswitch-client)", text)
+        self.assertIn("keystroke(control+alt+1) = switchToScreen(quickswitch-client)", text)
         self.assertIn("switchToScreen(quickswitch-server)", text)
 
-    def test_custom_hotkey_is_written_to_server_layout(self) -> None:
+    def test_custom_hotkey_is_ignored_in_server_layout(self) -> None:
         cfg = self.cfg()
         cfg["hotkeys"]["switch_to_mac"] = "ctrl+shift+f8"
         text = deskflow_bridge.render_server_config(cfg)
         self.assertIn(
-            "keystroke(control+shift+f8) = switchToScreen(quickswitch-client)", text
+            "keystroke(control+alt+1) = switchToScreen(quickswitch-client)", text
         )
 
     def test_prepare_writes_client_config(self) -> None:

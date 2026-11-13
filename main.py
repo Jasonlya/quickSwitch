@@ -47,6 +47,7 @@ import deskflow_bridge
 from clipboard_sync import ClipboardSync
 import mac_clipboard
 import mac_hotkeys
+from fixed_hotkeys import FIXED_HOTKEYS, switch_chord_pressed
 from discovery import DEFAULT_PORT as DISCOVERY_DEFAULT_PORT
 from discovery import PeerDiscovery
 from network import AUTH_ALG, PeerConnection, challenge_mac, verify_mac
@@ -55,7 +56,7 @@ from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 from wol import local_mac_addresses, parse_macs, send_magic_packet
 
-VERSION = "2.3.1"
+VERSION = "2.3.2"
 TARGETS = ("mac", "win")
 
 
@@ -763,7 +764,6 @@ class QuickSwitchApp:
         self._deskflow_lock = threading.RLock()
         self._permission_prompted = False
         self._startup_recovery_task: Optional[asyncio.Task] = None
-        self._deskflow_watch_task: Optional[asyncio.Task] = None
         configured_peer = str(cfg.get("peer_host") or "").strip()
         self._deskflow_peer_host = (
             "" if configured_peer.lower() in ("", "auto") else configured_peer
@@ -1044,38 +1044,6 @@ class QuickSwitchApp:
         else:
             log.info("对端地址固定为 %s:%s", self.peer.host, self.peer.port)
         self._schedule_startup_recovery()
-        self._deskflow_watch_task = asyncio.create_task(self._watch_deskflow_switches())
-
-    async def _watch_deskflow_switches(self):
-        """Deskflow may consume the hotkey before keyboard's Windows hook sees it."""
-        if self.platform != "Windows" or self.dry_run:
-            return
-        path = deskflow_bridge._state_dir(self.cfg, None) / "deskflow.log"
-        position = path.stat().st_size if path.exists() else 0
-        identity = None
-        while True:
-            try:
-                stat = path.stat()
-                current_identity = (stat.st_dev, stat.st_ino)
-                if (identity is not None and identity != current_identity) or stat.st_size < position:
-                    position = 0
-                identity = current_identity
-                with path.open("rb") as source:
-                    source.seek(position)
-                    # Bound each poll; retain incomplete trailing lines for next poll.
-                    for _ in range(256):
-                        line = source.readline(16384)
-                        if not line or not line.endswith(b"\n"):
-                            break
-                        position = source.tell()
-                        target = deskflow_bridge.switch_target_from_log(line.decode("utf-8", errors="replace"))
-                        if target:
-                            task = asyncio.create_task(self.quick.trigger(target, "deskflow"))
-                            self.quick._background_tasks.add(task)
-                            task.add_done_callback(self.quick._background_tasks.discard)
-            except OSError:
-                pass
-            await asyncio.sleep(0.1)
 
     def _schedule_startup_recovery(self) -> None:
         safety = self.cfg.get("safety") or {}
@@ -1110,10 +1078,6 @@ class QuickSwitchApp:
         clipboard = getattr(self, "clipboard", None)
         if clipboard is not None:
             await clipboard.stop()
-        watcher = getattr(self, "_deskflow_watch_task", None)
-        if watcher is not None:
-            watcher.cancel()
-            await asyncio.gather(watcher, return_exceptions=True)
         if self._startup_recovery_task is not None and not self._startup_recovery_task.done():
             self._startup_recovery_task.cancel()
             await asyncio.gather(self._startup_recovery_task, return_exceptions=True)
@@ -1279,6 +1243,11 @@ class QuickSwitchApp:
             webbrowser.open(self.web.url)
 
     # ---------------------------------------------------------------- 热键
+    def _trigger_hotkey(self, target):
+        if switch_chord_pressed(target):
+            return self.trigger(target, "hotkey")
+        log.debug("忽略未同时按下 Ctrl+Alt+数字 的热键回调")
+
     def _setup_hotkeys(self) -> None:
         if getattr(self, "_stopping", False):
             return
@@ -1312,7 +1281,7 @@ class QuickSwitchApp:
         # 旧热键仍留在全局钩子里；连续改几次后多个组合键会同时触发。
         with contextlib.suppress(Exception):
             keyboard.unhook_all_hotkeys()
-        hotkeys = self.cfg.get("hotkeys") or {}
+        hotkeys = FIXED_HOTKEYS
         registered: List[str] = []
         failures: List[str] = []
         for field, target in (("switch_to_mac", "mac"), ("switch_to_win", "win")):
@@ -1327,7 +1296,7 @@ class QuickSwitchApp:
             try:
                 # suppress=False：Deskflow 也要能收到同一热键来切换键鼠控制权
                 keyboard.add_hotkey(
-                    normalized, functools.partial(self.trigger, target, "hotkey"), suppress=False
+                    normalized, functools.partial(self._trigger_hotkey, target), suppress=False
                 )
                 registered.append(f"{normalized} → {LABEL[target]}")
                 log.info("已注册热键 %s → %s", normalized, LABEL[target])
@@ -1375,7 +1344,7 @@ class QuickSwitchApp:
         except Exception as exc:
             log.debug("初始化 macOS NSApplication 失败：%s", exc)
         manager = mac_hotkeys.MacHotkeyManager()
-        hotkeys = self.cfg.get("hotkeys") or {}
+        hotkeys = FIXED_HOTKEYS
         registered: List[str] = []
         failures: List[str] = []
         for field, target in (("switch_to_mac", "mac"), ("switch_to_win", "win")):
@@ -1389,7 +1358,7 @@ class QuickSwitchApp:
                 continue
             try:
                 manager.register(
-                    normalized, functools.partial(self.trigger, target, "hotkey")
+                    normalized, functools.partial(self._trigger_hotkey, target)
                 )
                 registered.append(f"{normalized} → {LABEL[target]}")
                 log.info("已注册 macOS 热键 %s → %s", normalized, LABEL[target])
@@ -1493,7 +1462,7 @@ class QuickSwitchApp:
             pystray.MenuItem("切到 Mac", self._tray_switch("mac")),
             pystray.MenuItem("切到 Windows", self._tray_switch("win")),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("打开设置窗口", self._tray_open_console),
+            pystray.MenuItem("打开设置窗口", self._tray_open_console, default=True),
             pystray.MenuItem("重启键鼠共享", self._tray_restart_deskflow),
         ]
         if self.platform == "Darwin":
@@ -1508,7 +1477,11 @@ class QuickSwitchApp:
             ]
         )
         menu = pystray.Menu(*menu_items)
-        self.icon = pystray.Icon("QuickSwitch", tray_image(), "QuickSwitch", menu)
+        icon_class = pystray.Icon
+        if self.platform == "Darwin":
+            from mac_tray import MacTrayIcon
+            icon_class = MacTrayIcon
+        self.icon = icon_class("QuickSwitch", tray_image(), "QuickSwitch", menu)
         if self.platform == "Darwin":
             # pystray 在 Icon 初始化时才创建 NSApplication；此时重新注册，
             # 确保 Carbon 热键挂到真正运行的事件循环上。

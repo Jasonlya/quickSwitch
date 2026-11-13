@@ -127,6 +127,7 @@ class CommandTests(unittest.TestCase):
 
 class _Process:
     def __init__(self, *, exits: bool = False) -> None:
+        self.pid = 123
         self.terminated = False
         self.killed = False
         self.exits = exits
@@ -156,10 +157,12 @@ class SettingsWindowTests(unittest.TestCase):
             "http://127.0.0.1:8767/", startup_grace=0
         )
         with mock.patch.object(settings_window, "webview_available", return_value=True), \
-                mock.patch.object(settings_window.subprocess, "Popen", return_value=process) as popen:
+                mock.patch.object(settings_window.subprocess, "Popen", return_value=process) as popen, \
+                mock.patch.object(settings_window, "focus_settings_process") as focus:
             self.assertTrue(window.open())
             self.assertTrue(window.open())
             popen.assert_called_once()
+            focus.assert_called_once_with(123)
         window.close()
         self.assertTrue(process.terminated)
 
@@ -177,7 +180,8 @@ class SettingsWindowTests(unittest.TestCase):
         )
         with mock.patch.object(settings_window, "webview_available", return_value=True), \
                 mock.patch("process_utils.platform.system", return_value="Windows"), \
-                mock.patch.object(settings_window.subprocess, "Popen", return_value=process) as popen:
+                mock.patch.object(settings_window.subprocess, "Popen", return_value=process) as popen, \
+                mock.patch.object(settings_window, "focus_settings_process") as focus:
             self.assertTrue(window.open())
         self.assertTrue(popen.call_args.kwargs["creationflags"] & 0x08000000)
         self.assertNotIn("startupinfo", popen.call_args.kwargs)

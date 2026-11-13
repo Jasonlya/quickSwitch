@@ -311,9 +311,8 @@ class WebConsoleTests(unittest.TestCase):
             }}},
             token=self.token,
         )
-        self.assertEqual(status, 200)
-        self.assertTrue(payload["live_applied"])
-        self.assertEqual(self.app.cfg["hotkeys"]["switch_to_mac"], "ctrl+shift+f8")
+        self.assertEqual(status, 400)
+        self.assertEqual(self.app.cfg["hotkeys"]["switch_to_mac"], "ctrl+alt+1")
 
         status, payload, _ = self.request(
             "POST", "/api/config",
@@ -321,7 +320,7 @@ class WebConsoleTests(unittest.TestCase):
             token=self.token,
         )
         self.assertEqual(status, 400)
-        self.assertIn("格式无效", payload["error"])
+        self.assertIn("自定义热键已关闭", payload["error"])
 
     def test_setup_completion_is_persisted_without_restart(self) -> None:
         body = {"values": {

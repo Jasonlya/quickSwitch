@@ -1024,12 +1024,6 @@ const CONFIG_FIELDS = [
     { path: "debounce", type: "number", min: 0, step: 0.1 },
     { path: "log_level", type: "select", options: ["DEBUG", "INFO", "WARNING", "ERROR"] },
   ] },
-  { group: "热键", fields: [
-    { path: "hotkeys.switch_to_mac", type: "hotkey", label: "切到 Mac", defaultValue: "ctrl+alt+1",
-      hint: "点「录入」后按下组合键。热键在连接键鼠的 Windows 端生效；设置后立即重新注册。" },
-    { path: "hotkeys.switch_to_win", type: "hotkey", label: "切到 Windows", defaultValue: "ctrl+alt+2",
-      hint: "至少包含 Ctrl / Alt / Shift / Win 中一个修饰键；F1-F12 可单独使用。" },
-  ] },
   { group: "键鼠共享（内置，无需打开 Deskflow）", fields: [
     { path: "deskflow.auto_start", type: "checkbox" },
     { path: "deskflow.port", type: "number", min: 1, max: 65535 },

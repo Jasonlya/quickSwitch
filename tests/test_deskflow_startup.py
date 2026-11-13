@@ -215,7 +215,7 @@ class DeskflowStartupTests(unittest.TestCase):
             QuickSwitchApp._setup_hotkeys(app)
         self.assertEqual(fake.unhook_all_hotkeys.call_count, 2)
         registered = [call.args[0] for call in fake.add_hotkey.call_args_list]
-        self.assertEqual(registered, ["ctrl+alt+1", "ctrl+alt+2", "ctrl+shift+f8", "ctrl+alt+2"])
+        self.assertEqual(registered, ["ctrl+alt+1", "ctrl+alt+2", "ctrl+alt+1", "ctrl+alt+2"])
         self.assertTrue(app.hotkeys_registered)
 
     def test_macos_client_registers_local_hotkeys(self) -> None:
@@ -231,16 +231,15 @@ class DeskflowStartupTests(unittest.TestCase):
         self.assertIn("本机已注册", app.hotkeys_reason)
         self.assertIs(app._mac_hotkeys, manager)
 
-    def test_macos_client_records_missing_hotkeys(self) -> None:
+    def test_macos_client_restores_fixed_hotkeys(self) -> None:
         app = make_app(True, role="client")
         app.cfg["hotkeys"] = {"switch_to_mac": "", "switch_to_win": ""}
         app._mac_hotkeys = None
         manager = mock.Mock()
         with mock.patch("main.mac_hotkeys.MacHotkeyManager", return_value=manager):
             QuickSwitchApp._setup_hotkeys(app)
-        self.assertFalse(app.hotkeys_registered)
-        self.assertIn("为空", app.hotkeys_reason)
-        manager.close.assert_called_once()
+        self.assertTrue(app.hotkeys_registered)
+        self.assertEqual([c.args[0] for c in manager.register.call_args_list], ["ctrl+alt+1", "ctrl+alt+2"])
 
     def test_macos_hotkey_update_from_worker_is_deferred_to_main_thread(self) -> None:
         app = make_app(True, role="client")
