@@ -74,3 +74,25 @@ class MacHotkeyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ObserverTests(unittest.TestCase):
+    def test_carbon_and_observer_events_are_deduplicated(self):
+        api = FakeCarbonAPI()
+        manager = mac_hotkeys.MacHotkeyManager(api=api)
+        fired = []
+        manager.register("ctrl+alt+2", lambda: fired.append("win"))
+        api.handler(1)
+        api.handler(1)
+        self.assertEqual(fired, ["win"])
+        manager.close()
+        api.handler(1)
+        self.assertEqual(fired, ["win"])
+
+    def test_observer_translates_carbon_modifier_flags(self):
+        observer = mac_hotkeys._HotkeyObserver(lambda _: None)
+        observer.thread = object()  # Inspect bindings without opening a real event tap.
+        observer.add(19, 4096 | 2048, 1)
+        observer.add(49, 256 | 512, 2)
+        self.assertEqual(observer.bindings[(19, (1 << 18) | (1 << 19))], 1)
+        self.assertEqual(observer.bindings[(49, (1 << 20) | (1 << 17))], 2)

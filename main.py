@@ -44,6 +44,7 @@ from config import (
 )
 from ddc import DDC_OSD_GUIDANCE, DEFAULT_INPUT_CANDIDATES, DDCSwitcher
 import deskflow_bridge
+from clipboard_sync import ClipboardSync
 import mac_clipboard
 import mac_hotkeys
 from discovery import DEFAULT_PORT as DISCOVERY_DEFAULT_PORT
@@ -54,7 +55,7 @@ from webui import EventBuffer, WebConsole
 from webui import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 from wol import local_mac_addresses, parse_macs, send_magic_packet
 
-VERSION = "2.2.3"
+VERSION = "2.3.0"
 TARGETS = ("mac", "win")
 
 
@@ -377,9 +378,9 @@ class QuickSwitch:
             return False
         except Exception as exc:
             log.debug("读取当前输入失败：%s", exc)
-            return self.state == target
+            return False
         if current is None:
-            return self.state == target
+            return False
         return current == target
 
     async def _probe_peer(self, timeout: float) -> bool:
@@ -734,11 +735,13 @@ class QuickSwitchApp:
             int(cfg.get("listen_port")),
             self.quick.handle_message,
             name=self.quick.name,
-            identity=self.quick.identity(),
+            identity={**self.quick.identity(), "clipboard_protocol": 1},
             on_event=self._on_event,
             **network_kwargs(cfg),
         )
         self.quick.set_peer(self.peer)
+        self.clipboard = ClipboardSync(cfg, self.peer)
+        self.peer.on_message = self._handle_peer_message
         self.discovery: Optional[PeerDiscovery] = None
         self.icon = None
         self._keyboard = None
@@ -760,6 +763,7 @@ class QuickSwitchApp:
         self._deskflow_lock = threading.RLock()
         self._permission_prompted = False
         self._startup_recovery_task: Optional[asyncio.Task] = None
+        self._deskflow_watch_task: Optional[asyncio.Task] = None
         configured_peer = str(cfg.get("peer_host") or "").strip()
         self._deskflow_peer_host = (
             "" if configured_peer.lower() in ("", "auto") else configured_peer
@@ -775,6 +779,12 @@ class QuickSwitchApp:
             "value": None, "target": None, "at": None, "error": None,
         }
 
+    async def _handle_peer_message(self, msg):
+        if str(msg.get("type", "")).startswith("clipboard_"):
+            await self.clipboard.handle(msg)
+        else:
+            await self.quick.handle_message(msg)
+
     # ---------------------------------------------------------------- 事件
     def _on_event(self, event: str, **fields: Any) -> None:
         if event == "connected":
@@ -789,7 +799,7 @@ class QuickSwitchApp:
             log.info("接受来自 %s 的连接", fields.get("peer"))
         elif event == "message":
             msg = fields.get("msg") or {}
-            if msg.get("type") not in ("ping", "pong"):
+            if msg.get("type") not in ("ping", "pong") and not str(msg.get("type", "")).startswith("clipboard_"):
                 log.debug("收到对端消息：%s", msg)
 
     def _on_peer_found(self, peer: Dict[str, Any]) -> None:
@@ -837,7 +847,17 @@ class QuickSwitchApp:
         """返回缓存的 Deskflow 状态；超过 3 秒才重新探测进程。"""
         if time.monotonic() - self._deskflow_checked_at >= 3.0:
             self._refresh_deskflow_status()
-        return dict(self.deskflow_status)
+        result = dict(self.deskflow_status)
+        clipboard = getattr(self, "clipboard", None)
+        if clipboard is not None:
+            enabled, limit = clipboard.settings()
+            result["clipboard_transport"] = {
+                "enabled": enabled, "size": limit // (1024 * 1024),
+                "connected": bool(self.peer.connected),
+                "compatible": self.peer.peer_info.get("clipboard_protocol") == 1,
+                "last_error": clipboard.last_error,
+            }
+        return result
 
     def _wait_for_deskflow(self, timeout: float = 1.5) -> None:
         """等待启动后的进程可被检测到，避免状态页短暂显示「未运行」。"""
@@ -934,8 +954,6 @@ class QuickSwitchApp:
             return False
         if any(key.startswith("hotkeys.") for key in changed):
             self._setup_hotkeys()
-        if any(key == "deskflow.clipboard_enabled" for key in changed):
-            self._setup_clipboard_normalizer()
         if any(key.startswith("deskflow.") or key.startswith("hotkeys.") for key in changed):
             self._restart_deskflow("配置已更新")
         return True
@@ -1004,6 +1022,8 @@ class QuickSwitchApp:
 
     async def _startup(self) -> None:
         await self.peer.start()  # 端口被占用会抛 OSError
+        if not self.dry_run and self.platform in ("Darwin", "Windows"):
+            self.clipboard.start()
         # 启动时后台回读一次输入源：Web 控制台一打开就能显示显示器当前归谁
         self.refresh_input_async()
         cfg_disc = self.cfg.get("discovery") or {}
@@ -1024,6 +1044,38 @@ class QuickSwitchApp:
         else:
             log.info("对端地址固定为 %s:%s", self.peer.host, self.peer.port)
         self._schedule_startup_recovery()
+        self._deskflow_watch_task = asyncio.create_task(self._watch_deskflow_switches())
+
+    async def _watch_deskflow_switches(self):
+        """Deskflow may consume the hotkey before keyboard's Windows hook sees it."""
+        if self.platform != "Windows" or self.dry_run:
+            return
+        path = deskflow_bridge._state_dir(self.cfg, None) / "deskflow.log"
+        position = path.stat().st_size if path.exists() else 0
+        identity = None
+        while True:
+            try:
+                stat = path.stat()
+                current_identity = (stat.st_dev, stat.st_ino)
+                if (identity is not None and identity != current_identity) or stat.st_size < position:
+                    position = 0
+                identity = current_identity
+                with path.open("rb") as source:
+                    source.seek(position)
+                    # Bound each poll; retain incomplete trailing lines for next poll.
+                    for _ in range(256):
+                        line = source.readline(16384)
+                        if not line or not line.endswith(b"\n"):
+                            break
+                        position = source.tell()
+                        target = deskflow_bridge.switch_target_from_log(line.decode("utf-8", errors="replace"))
+                        if target:
+                            task = asyncio.create_task(self.quick.trigger(target, "deskflow"))
+                            self.quick._background_tasks.add(task)
+                            task.add_done_callback(self.quick._background_tasks.discard)
+            except OSError:
+                pass
+            await asyncio.sleep(0.1)
 
     def _schedule_startup_recovery(self) -> None:
         safety = self.cfg.get("safety") or {}
@@ -1055,6 +1107,13 @@ class QuickSwitchApp:
             self.quick.last_error = "启动恢复失败：无法把显示器切回本机输入"
 
     async def _shutdown_async(self) -> None:
+        clipboard = getattr(self, "clipboard", None)
+        if clipboard is not None:
+            await clipboard.stop()
+        watcher = getattr(self, "_deskflow_watch_task", None)
+        if watcher is not None:
+            watcher.cancel()
+            await asyncio.gather(watcher, return_exceptions=True)
         if self._startup_recovery_task is not None and not self._startup_recovery_task.done():
             self._startup_recovery_task.cancel()
             await asyncio.gather(self._startup_recovery_task, return_exceptions=True)
@@ -1127,7 +1186,6 @@ class QuickSwitchApp:
 
         self._install_signal_handlers()
         self._setup_hotkeys()
-        self._setup_clipboard_normalizer()
         self._start_deskflow()
         if self.web_enabled:
             self._start_web()

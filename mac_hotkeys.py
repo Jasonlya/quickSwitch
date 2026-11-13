@@ -11,6 +11,7 @@ import ctypes
 import ctypes.util
 import logging
 import threading
+import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from config import normalize_hotkey
@@ -192,6 +193,8 @@ class MacHotkeyManager:
 
     def __init__(self, api: Optional[_CarbonAPI] = None) -> None:
         self._api = api
+        self._observer = _HotkeyObserver(self._dispatch) if api is None else None
+        self._last_dispatch = {}
         self._handler_ref: Optional[int] = None
         self._refs: List[Tuple[int, int, str]] = []
         self._callbacks: Dict[int, Callable[[], None]] = {}
@@ -217,11 +220,16 @@ class MacHotkeyManager:
             ref = api.register_hotkey(keycode, modifiers, hotkey_id)
             self._callbacks[hotkey_id] = callback
             self._refs.append((ref, hotkey_id, combo))
+            if self._observer is not None:
+                self._observer.add(keycode, modifiers, hotkey_id)
 
     def _dispatch(self, hotkey_id: int) -> None:
-        callback = self._callbacks.get(hotkey_id)
-        if callback is None:
-            return
+        with self._lock:
+            callback = self._callbacks.get(hotkey_id)
+            now = time.monotonic()
+            if callback is None or now - self._last_dispatch.get(hotkey_id, -1) < 0.25:
+                return
+            self._last_dispatch[hotkey_id] = now
         combo = next(
             (item[2] for item in self._refs if item[1] == hotkey_id),
             f"id={hotkey_id}",
@@ -233,6 +241,8 @@ class MacHotkeyManager:
             log.exception("执行 macOS 热键回调失败")
 
     def close(self) -> None:
+        if self._observer is not None:
+            self._observer.close()
         with self._lock:
             if self._closed:
                 return
@@ -274,3 +284,98 @@ def pump_events(seconds: float = 0.05) -> None:
     cf.CFRunLoopRunInMode.restype = ctypes.c_int32
     mode = ctypes.c_void_p.in_dll(cf, "kCFRunLoopDefaultMode")
     cf.CFRunLoopRunInMode(mode, max(0.0, float(seconds)), True)
+
+
+class _HotkeyObserver:
+    """Listen at the HID tap before Deskflow can consume forwarded keystrokes.
+
+    Carbon remains the permission-free fallback. This tap never swallows keys;
+    it has its own run loop so tray menus cannot delay hotkey dispatch.
+    """
+    def __init__(self, dispatch):
+        self.dispatch = dispatch
+        self.bindings = {}
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def add(self, keycode, modifiers, hotkey_id):
+        # Carbon and Quartz use different modifier masks.
+        flags = 0
+        for carbon, quartz in ((_MOD_CMD, 1 << 20), (_MOD_SHIFT, 1 << 17),
+                                (_MOD_OPTION, 1 << 19), (_MOD_CONTROL, 1 << 18)):
+            if modifiers & carbon:
+                flags |= quartz
+        self.bindings[(keycode, flags)] = hotkey_id
+        if self.thread is None:
+            self.thread = threading.Thread(target=self._run, daemon=True, name="quickswitch-hotkeys")
+            self.thread.start()
+
+    def close(self):
+        self.stop_event.set()
+        if self.thread:
+            self.thread.join(timeout=1)
+
+    def _run(self):
+        tap = source = None
+        try:
+            cg = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreGraphics"))
+            cf = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreFoundation"))
+            callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32,
+                                             ctypes.c_void_p, ctypes.c_void_p)
+            cg.CGEventTapCreate.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+                                          ctypes.c_uint64, callback_type, ctypes.c_void_p]
+            cg.CGEventTapCreate.restype = ctypes.c_void_p
+            cg.CGEventGetIntegerValueField.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            cg.CGEventGetIntegerValueField.restype = ctypes.c_int64
+            cg.CGEventGetFlags.argtypes = [ctypes.c_void_p]
+            cg.CGEventGetFlags.restype = ctypes.c_uint64
+            cg.CGEventTapEnable.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+            cf.CFMachPortCreateRunLoopSource.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
+            cf.CFMachPortCreateRunLoopSource.restype = ctypes.c_void_p
+            cf.CFRunLoopGetCurrent.restype = ctypes.c_void_p
+            cf.CFRunLoopAddSource.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+            cf.CFRunLoopRemoveSource.argtypes = cf.CFRunLoopAddSource.argtypes
+            cf.CFRunLoopRunInMode.argtypes = [ctypes.c_void_p, ctypes.c_double, ctypes.c_bool]
+            cf.CFMachPortInvalidate.argtypes = [ctypes.c_void_p]
+            cf.CFRelease.argtypes = [ctypes.c_void_p]
+            mask = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
+
+            @callback_type
+            def callback(_proxy, event_type, event, _context):
+                try:
+                    if event_type in (0xFFFFFFFE, 0xFFFFFFFF):
+                        cg.CGEventTapEnable(tap, True)
+                    elif event_type == 10 and not cg.CGEventGetIntegerValueField(event, 8):
+                        key = int(cg.CGEventGetIntegerValueField(event, 9))
+                        flags = int(cg.CGEventGetFlags(event)) & mask
+                        hotkey_id = self.bindings.get((key, flags))
+                        if hotkey_id:
+                            self.dispatch(hotkey_id)
+                except Exception:
+                    log.exception("处理 macOS 键盘监听事件失败")
+                return event
+
+            # kCGHIDEventTap, kCGHeadInsertEventTap, kCGEventTapOptionListenOnly
+            tap = cg.CGEventTapCreate(0, 0, 1, 1 << 10, callback, None)
+            if not tap:
+                log.warning("macOS 热键监听不可用（请检查输入监控权限），继续使用 Carbon 热键")
+                return
+            source = cf.CFMachPortCreateRunLoopSource(None, tap, 0)
+            if not source:
+                raise HotkeyError("无法创建热键监听事件源")
+            mode = ctypes.c_void_p.in_dll(cf, "kCFRunLoopDefaultMode")
+            loop = cf.CFRunLoopGetCurrent()
+            cf.CFRunLoopAddSource(loop, source, mode)
+            try:
+                while not self.stop_event.is_set():
+                    cf.CFRunLoopRunInMode(mode, 0.1, False)
+            finally:
+                cf.CFRunLoopRemoveSource(loop, source, mode)
+        except Exception:
+            log.warning("macOS 热键监听启动失败，继续使用 Carbon 热键", exc_info=True)
+        finally:
+            if source:
+                cf.CFRelease(source)
+            if tap:
+                cf.CFMachPortInvalidate(tap)
+                cf.CFRelease(tap)

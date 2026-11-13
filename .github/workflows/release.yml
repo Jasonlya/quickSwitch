@@ -248,15 +248,16 @@ jobs:
         with:
           name: QuickSwitch ${{ github.ref_name }}
           body: |
-            QuickSwitch ${{ github.ref_name }}：修复正常退出时自动回切到另一台电脑。
+            QuickSwitch ${{ github.ref_name }}：增强 Mac / Windows 切换热键，新增文件剪贴板传输。
 
-            - **退出不再自动切回**：正常退出 QuickSwitch 会先发送 `goodbye`；对端收到后不再把这次断开当作异常失联，不会触发 auto-recover。
-            - **自动回切默认关闭**：`safety.revert_on_disconnect` 默认 `false`，只有用户在「睡眠 / 离线保护」里显式开启，才会在对端异常失联超过 `offline_grace` 后回切。
-            - **保留切换保护**：`safety.require_target_online`、启动恢复、可选 Wake-on-LAN、macOS 本机热键、macOS → Windows 图片剪贴板兼容、双向剪贴板和显示器 DDC 切换均保留。
-            - **回归测试**：新增正常退出握手、探活中收到 goodbye 等测试，共 275 项测试通过。
-            - 继续内置官方 Deskflow 1.27.0 无界面核心，Windows 自动服务端、macOS 自动客户端
-            - 保留稳定的 macOS Ad-hoc 授权、DDC 输入源切换、6 位配对码、配置向导、Windows 高 DPI 修复和安装包内置 Python 运行时
-            - macOS 仅支持 Apple Silicon（arm64），Windows 支持 10/11 x64
+            - macOS 增加独立 HID 热键监听，保留 Carbon 后备；Windows 监听 Deskflow 实际焦点切换作为兜底。
+            - 修正无法读取 DDC 当前输入时误用历史状态，导致跳过切换的问题。
+            - 原生同步文本、HTML、截图、文件及文件夹；文件可粘到 Finder / 资源管理器。
+            - 剪贴板新增分块、SHA-256 校验、接收确认、超时重试和防循环回传；默认上限 16 MiB。
+            - **Mac 和 Windows 两端均需更新**，旧版不支持新剪贴板协议。
+            - 文件缓存位于 `~/.quickswitch/clipboard-cache/`；不再需要时可手动清理。
+            - 继续内置 Deskflow 1.27.0；macOS 支持 Apple Silicon（arm64），Windows 支持 10/11 x64。
+            - 自动化测试通过后构建；真实双机热键和原生剪贴板仍需实机验收。
 
             安装包尚未签名：macOS 首次打开请右键 App →「打开」；Windows 如遇 SmartScreen，请选择「更多信息 → 仍要运行」。
 

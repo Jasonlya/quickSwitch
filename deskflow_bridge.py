@@ -487,13 +487,12 @@ def render_settings(cfg: Dict[str, Any], prepared: PreparedDeskflow) -> str:
     if prepared.mode == "server":
         # Deskflow 的 INI 解析器会把反斜杠当作转义符；Windows 路径必须用正斜杠。
         external_config = str(prepared.server_config_path).replace("\\", "/")
-        clipboard_enabled = bool(_section(cfg).get("clipboard_enabled", True))
         clipboard_size = int(_section(cfg).get("clipboard_size", 16))
         lines.extend((
             "[server]",
             "externalConfig=true",
             f"externalConfigFile={external_config}",
-            f"enableClipboard={'true' if clipboard_enabled else 'false'}",
+            "enableClipboard=false",  # QuickSwitch owns clipboard transport; avoid two writers.
             f"clipboardSize={clipboard_size}",
             "",
         ))
@@ -1040,3 +1039,11 @@ def snapshot(
         "permission_required": permission_required,
         "detail": summary,
     }
+
+
+def switch_target_from_log(line: str) -> Optional[str]:
+    """Only react to actual server focus transitions, never clipboard/error lines."""
+    match = re.search(r"INFO:\s+switch from [\"']([^\"']+)[\"'] to [\"']([^\"']+)[\"']", line)
+    if not match or match[1] == match[2]:
+        return None
+    return {SERVER_NAME: "win", CLIENT_NAME: "mac"}.get(match[2])

@@ -214,7 +214,7 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("externalConfig=true", text)
         external_config = str(item.server_config_path).replace("\\", "/")
         self.assertIn(f"externalConfigFile={external_config}", text)
-        self.assertIn("enableClipboard=true", text)
+        self.assertIn("enableClipboard=false", text)
         self.assertIn("clipboardSize=16", text)
 
     def test_clipboard_settings_are_configurable(self) -> None:
@@ -538,3 +538,15 @@ class PermissionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SwitchLogTests(unittest.TestCase):
+    def test_focus_switches_map_to_display_targets(self):
+        self.assertEqual(deskflow_bridge.switch_target_from_log(
+            '[2026-11-13T12:00:00] INFO: switch from "quickswitch-client" to "quickswitch-server" at 1,2'), "win")
+        self.assertEqual(deskflow_bridge.switch_target_from_log(
+            "INFO: switch from 'quickswitch-server' to 'quickswitch-client' at 1,2"), "mac")
+        for line in ('ERROR: switch from "quickswitch-client" to "quickswitch-server"',
+                     'INFO: clipboard was updated', 'INFO: switch from "a" to "unknown"',
+                     'INFO: switch from "quickswitch-server" to "quickswitch-server"'):
+            self.assertIsNone(deskflow_bridge.switch_target_from_log(line))

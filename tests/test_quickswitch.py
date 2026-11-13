@@ -378,3 +378,14 @@ class RunOnceTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleInputTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unknown_input_does_not_reuse_previous_target(self):
+        ddc = FakeDDC()
+        quick = QuickSwitch(base_cfg(), ddc=ddc)
+        quick.state = "win"
+        # Input may have changed via monitor buttons or another computer.
+        ddc.current = None
+        self.assertTrue(await quick.trigger("win"))
+        self.assertEqual(ddc.calls, ["win"])

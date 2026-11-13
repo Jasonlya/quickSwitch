@@ -102,12 +102,16 @@ function deskflowPermissionText(info) {
 
 function clipboardSummary(info) {
   if (!info) return DASH;
-  if (info.mode === "client") {
-    return "由 Windows 服务端控制 · 在 Windows 的「配置 → 键鼠共享」中开关和调整上限";
+  const transport = info.clipboard_transport;
+  if (transport) {
+    if (!transport.enabled) return "已关闭（不会同步复制内容）";
+    if (!transport.connected) return "等待对端连接";
+    if (!transport.compatible) return "请将两端 QuickSwitch 更新到支持文件同步的版本";
+    if (transport.last_error) return "同步异常：" + transport.last_error;
+    return "已开启 · 文本 / HTML / 图片 / 文件及文件夹 · 上限 " + transport.size + " MB";
   }
   if (!info.clipboard_enabled) return "已关闭（不会同步复制内容）";
-  const size = info.clipboard_size == null ? DASH : info.clipboard_size + " MB";
-  return "已开启 · 文本 / HTML / 图片 · 上限 " + size + " · 由本机控制";
+  return "等待剪贴板同步启动";
 }
 
 function clock(iso) {
@@ -1031,9 +1035,9 @@ const CONFIG_FIELDS = [
     { path: "deskflow.port", type: "number", min: 1, max: 65535 },
     { path: "deskflow.mac_side", type: "select", options: ["left", "right"] },
     { path: "deskflow.clipboard_enabled", type: "checkbox", label: "共享剪贴板",
-      hint: "双向同步复制的文本、HTML 和图片；需两端键鼠共享已连接。以 Windows 服务端设置为准。" },
+      hint: "双向同步文本、HTML、图片、文件和文件夹；两端均需更新 QuickSwitch 并连接。Windows 设置会下发到 Mac，两端均可关闭同步。" },
     { path: "deskflow.clipboard_size", type: "number", min: 1, max: 128, step: 1,
-      label: "剪贴板上限（MB）", hint: "单次复制内容的最大体积，默认 16 MB。客户端沿用 Windows 端设置。" },
+      label: "剪贴板上限（MB）", hint: "单次复制内容的最大体积，默认 16 MB。两端上限取较小值。" },
     { path: "deskflow.language_sync", type: "checkbox", label: "同步键盘语言（高级）",
       hint: "默认关闭，保留 Mac 当前输入源。只有两台电脑安装完全相同的键盘布局时才建议开启。" },
     { path: "deskflow.path", type: "text" },

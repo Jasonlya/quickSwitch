@@ -36,7 +36,8 @@ AUTH_ALG = "hmac-sha256"
 AUTH_PROTOCOL = 1
 
 # 通过校验前会被丢弃的消息类型（握手与心跳始终放行，否则无法完成握手/探活）
-GUARDED_TYPES = ("switch", "switch_ack")
+GUARDED_TYPES = ("switch", "switch_ack", "clipboard_policy", "clipboard_begin",
+                 "clipboard_chunk", "clipboard_end", "clipboard_ack")
 
 
 def _fmt_addr(addr: Any) -> str:
@@ -372,7 +373,7 @@ class PeerConnection:
         async with self._write_lock:
             try:
                 writer.write((json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8"))
-                await writer.drain()
+                await asyncio.wait_for(writer.drain(), timeout=2.0)
                 return True
             except Exception as exc:
                 log.debug("发送失败：%s", exc)
@@ -496,7 +497,7 @@ class PeerConnection:
         except asyncio.CancelledError:
             raise
         except Exception:
-            log.exception("处理消息失败：%s", msg)
+            log.exception("处理消息失败：type=%s id=%s", msg.get("type"), msg.get("id"))
 
     # ---------------------------------------------------------------- 内部工具
     def _new_auth(self) -> _Auth:
